@@ -10,6 +10,10 @@ import streamlit as st
 
 DB = Path(__file__).with_name("predictions.db")
 VENUES = ["桐生","戸田","江戸川","平和島","多摩川","浜名湖","蒲郡","常滑","津","三国","びわこ","住之江","尼崎","鳴門","丸亀","児島","宮島","徳山","下関","若松","芦屋","福岡","唐津","大村"]
+VENUE_INNER_WIN = dict(zip(VENUES, [51,43.2,47.5,44,54.6,55,57.8,57.6,58.1,52.6,53.7,57,60.3,48.8,55,54.8,56.4,61.6,62.4,59.7,60.4,59.3,57.2,60.9]))
+VENUE_STATS_SOURCE = "https://boatrace-db.jp/stadium/acourse/"
+# Reference: 1-course first-place percentages, approximately 2025-10-01 to 2026-09-30.
+# Historical course statistics are not a validated per-race probability.
 FIELDS = ["race_id", "boat", "win_rate", "avg_st", "motor_rate", "exhibition_time", "odds"]
 
 def database():
@@ -89,12 +93,20 @@ conn = database()
 with tab1:
     st.subheader("レース条件")
     venue = st.selectbox("競艇場（全国24場）", VENUES, index=None, placeholder="競艇場を選択")
-    st.caption("競艇場ごとのコース別傾向は、今後実測データを取り込んで検証します。現在は場名のみ記録用に表示します。")
+    if venue:
+        inner = VENUE_INNER_WIN[venue]
+        st.metric(f"{venue}・1コースの過去1着率", f"{inner:.1f}%")
+        st.caption("参考統計：概ね2025/10〜2026/9の進入1コース実績。今日の1号艇の勝率ではありません。")
+        st.write("傾向の目安：" + ("全国の中でもインが強め" if inner >= 58 else "インが比較的弱め" if inner < 50 else "中間的な水準"))
+        st.link_button("全24場のコース別成績を見る（外部サイト）", VENUE_STATS_SOURCE)
+    else:
+        st.caption("競艇場を選ぶと過去の1コース1着率を表示します。")
     weather = st.selectbox("天候", ["未取得", "晴れ", "くもり", "雨", "雪", "その他"])
     wind_direction = st.selectbox("風向", ["未取得", "無風", "北", "北東", "東", "南東", "南", "南西", "西", "北西"])
     wind_speed = st.number_input("風速（m/s）", min_value=0.0, max_value=40.0, value=None, step=0.5, placeholder="未取得")
     wave_height = st.number_input("波高（cm）", min_value=0, max_value=300, value=None, step=1, placeholder="未取得")
     st.caption("気象条件は未入力のままでもOK。実測値がなければ未取得として扱います。")
+    st.caption("風向の有利不利は場の水面・風向・風速・進入コースによって変わります。現時点では自動補正しません。")
     st.divider()
     st.subheader("CSVから分析")
     st.write("実際に取得したレース情報をCSVでアップロードしてください。未取得データを架空の値で補いません。")
