@@ -9,6 +9,7 @@ from pathlib import Path
 import streamlit as st
 
 DB = Path(__file__).with_name("predictions.db")
+VENUES = ["桐生","戸田","江戸川","平和島","多摩川","浜名湖","蒲郡","常滑","津","三国","びわこ","住之江","尼崎","鳴門","丸亀","児島","宮島","徳山","下関","若松","芦屋","福岡","唐津","大村"]
 FIELDS = ["race_id", "boat", "win_rate", "avg_st", "motor_rate", "exhibition_time", "odds"]
 
 def database():
@@ -86,6 +87,15 @@ tab1, tab2, tab3 = st.tabs(["レース分析", "結果記録", "成績"])
 conn = database()
 
 with tab1:
+    st.subheader("レース条件")
+    venue = st.selectbox("競艇場（全国24場）", VENUES, index=None, placeholder="競艇場を選択")
+    st.caption("競艇場ごとのコース別傾向は、今後実測データを取り込んで検証します。現在は場名のみ記録用に表示します。")
+    weather = st.selectbox("天候", ["未取得", "晴れ", "くもり", "雨", "雪", "その他"])
+    wind_direction = st.selectbox("風向", ["未取得", "無風", "北", "北東", "東", "南東", "南", "南西", "西", "北西"])
+    wind_speed = st.number_input("風速（m/s）", min_value=0.0, max_value=40.0, value=None, step=0.5, placeholder="未取得")
+    wave_height = st.number_input("波高（cm）", min_value=0, max_value=300, value=None, step=1, placeholder="未取得")
+    st.caption("気象条件は未入力のままでもOK。実測値がなければ未取得として扱います。")
+    st.divider()
     st.subheader("CSVから分析")
     st.write("実際に取得したレース情報をCSVでアップロードしてください。未取得データを架空の値で補いません。")
     st.code(",".join(FIELDS), language="text")
@@ -96,6 +106,9 @@ with tab1:
         try:
             groups = parse_rows(uploaded)
             picks = evaluate(groups)
+            st.write("**分析対象の条件（参考情報）**")
+            st.write(f"競艇場: {venue or '未取得'} / 天候: {weather} / 風向: {wind_direction} / 風速: {str(wind_speed) + ' m/s' if wind_speed is not None else '未取得'} / 波高: {str(wave_height) + ' cm' if wave_height is not None else '未取得'}")
+            st.info("現バージョンでは気象条件・競艇場特性は予測計算に反映していません。根拠のない補正を避けるため、まず実測値の記録・表示に対応しました。")
             top = picks[:10]
             st.dataframe([{k: v for k, v in row.items() if not k.startswith("_")} for row in top], use_container_width=True, hide_index=True)
             st.caption("期待回収倍率＝簡易推定確率×単勝オッズ。1倍超でも利益は保証されません。")
