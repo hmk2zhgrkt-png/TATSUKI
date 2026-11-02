@@ -2,6 +2,7 @@
 import csv
 import io
 import math
+import itertools
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
@@ -89,7 +90,7 @@ st.set_page_config(page_title="競艇AI分析 | TATSUKI", layout="centered")
 st.title("🚤 競艇AI分析 TATSUKI")
 st.caption("試作版｜実データの自動取得なし・予測精度は未検証・自動投票なし")
 st.warning("表示する確率は簡易計算による参考値で、実際の的中確率ではありません。利益を保証しません。")
-tab1, tab2, tab3 = st.tabs(["レース分析", "結果記録", "成績"])
+tab4, tab1, tab2, tab3 = st.tabs(["3連単予想（試作）", "旧CSV分析", "旧結果記録", "旧成績"])
 conn = database()
 
 with tab1:
@@ -187,4 +188,65 @@ with tab3:
         b.metric("回収率", f"{returns / total * 100:.1f}%" if total else "未算出")
         st.metric("累計収支（仮想）", f"{returns - total:+,}円")
         st.caption(f"結果記録済み {len(records)}件。仮想購入額0円の記録は回収率の分母に含まれません。")
+
+with tab4:
+    st.subheader("3連単予想エンジン v0.1")
+    st.warning("固定ルールによる試作モデルです。表示する確率は未校正で、実際の的中確率や利益を保証しません。")
+    st.write("CSV不要。6艇の数値を表に入力すると、120通りの3連単を同じ計算式で順位付けします。")
+    race_venue = st.selectbox("開催場", VENUES, index=18, key="prediction_venue")
+    initial = [{"号艇": i, "全国勝率": None, "平均ST": None, "モーター2連対率": None, "展示タイム": None, "展示ST": None, "展示進入コース": i} for i in range(1, 7)]
+    with st.form("three_way_form"):
+        edited = st.data_editor(initial, hide_index=True, num_rows="fixed", use_container_width=True,
+                                disabled=["号艇"], key="three_way_data")
+        submitted = st.form_submit_button("3連単120通りを計算")
+    if submitted:
+        try:
+            if len(edited) != 6 or [int(x["号艇"]) for x in edited] != list(range(1, 7)):
+                raise ValueError("1〜6号艇の6行が必要です。")
+            required = ["全国勝率", "平均ST", "モーター2連対率", "展示タイム"]
+            for row in edited:
+                if any(row.get(k) is None or row.get(k) == "" for k in required):
+                    raise ValueError("全国勝率・平均ST・モーター2連対率・展示タイムを全6艇分入力してください。")
+                if not (0 <= float(row["全国勝率"]) <= 10 and 0 <= float(row["平均ST"]) <= 1
+                        and 0 <= float(row["モーター2連対率"]) <= 100
+                        and 5 <= float(row["展示タイム"]) <= 10):
+                    raise ValueError("入力値の範囲を確認してください。")
+            courses = [int(row["展示進入コース"]) for row in edited]
+            if sorted(courses) != list(range(1, 7)):
+                raise ValueError("展示進入コースは1〜6を重複なしで入力してください。")
+            scores = {}
+            for row in edited:
+                boat = int(row["号艇"])
+                course = int(row["展示進入コース"])
+                historical = VENUE_COURSE_HISTORICAL[race_venue][course - 1]
+                score = (0.35 * float(row["全国勝率"]) / 10
+                         + 0.15 * (1 - float(row["平均ST"]))
+                         + 0.20 * float(row["モーター2連対率"]) / 100
+                         + 0.10 * (7.0 / float(row["展示タイム"]))
+                         + 0.20 * historical / 50)
+                # 展示STは本番STの予測に直結しないため現時点では補正しない。
+                scores[boat] = max(0.001, score)
+            outcomes = []
+            total = sum(scores.values())
+            for first, second, third in itertools.permutations(range(1, 7), 3):
+                p = (scores[first] / total
+                     * scores[second] / (total - scores[first])
+                     * scores[third] / (total - scores[first] - scores[second]))
+                outcomes.append({"3連単": f"{first}-{second}-{third}", "モデル内の割合": p})
+            outcomes.sort(key=lambda x: x["モデル内の割合"], reverse=True)
+            st.success("120通りの計算が完了しました。")
+            st.dataframe([{"順位": i, "3連単": r["3連単"], "モデル内の割合": f'{r["モデル内の割合"] * 100:.2f}%'}
+                          for i, r in enumerate(outcomes[:20], 1)], hide_index=True, use_container_width=True)
+            st.caption("割合は120通りの合計が100%になるようにしたモデル上の値。実際の的中確率ではありません。")
+            st.caption("全国勝率・平均ST・モーター2連対率・展示タイム・開催場の長期コース別1着率を反映。風・波・展示ST・オッズは未反映。着順の条件付き確率はPlackett–Luce方式で算出。")
+            output = io.StringIO()
+            writer = csv.writer(output)
+            writer.writerow(["rank", "combination", "model_share"])
+            for i, row in enumerate(outcomes, 1):
+                writer.writerow([i, row["3連単"], f'{row["モデル内の割合"]:.8f}'])
+            st.download_button("120通りの予想をCSVで保存", output.getvalue().encode("utf-8-sig"),
+                               file_name="tatsuki_3ren_predictions.csv", mime="text/csv")
+        except (ValueError, TypeError, KeyError, ZeroDivisionError) as exc:
+            st.error(f"入力を確認してください：{exc}")
+
 conn.close()
