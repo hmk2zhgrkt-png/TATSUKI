@@ -236,13 +236,17 @@ with tab4:
                              + 0.10 * 7.0 / exhibition_inputs[boat]
                              + 0.20 * historical / 50)
                     scores_auto[boat] = max(0.001, score)
+                baseline_scores_auto = scores_auto.copy()
                 # Recent finishing positions are an experimental, capped adjustment.
                 # Non-numeric finishes (F/L/欠場 etc.) are excluded, never treated as 6th.
                 recent_details = []
+                finish_distribution = []
                 for row in history_rows:
                     boat = int(row["号艇"])
                     raw = str(row.get("過去10走", ""))
                     finishes = [int(token) for token in raw.split() if token in ("1", "2", "3", "4", "5", "6")]
+                    counts = {str(i) + "着": finishes.count(i) for i in range(1, 7)}
+                    finish_distribution.append({"号艇": boat, "選手": row.get("選手", ""), "有効走数": len(finishes), **counts})
                     if len(finishes) >= 5:
                         top3_rate = sum(v <= 3 for v in finishes) / len(finishes)
                         # Baseline 50% top-three; cap effect to ±6%.
@@ -252,6 +256,7 @@ with tab4:
                     else:
                         recent_details.append({"号艇": boat, "有効走数": len(finishes), "3着以内率": "不足", "スコア補正": "なし"})
                 st.session_state["recent_details"] = recent_details
+                st.session_state["finish_distribution"] = finish_distribution
                 total_auto = sum(scores_auto.values())
                 outcomes_auto = []
                 for a, b, c_ in itertools.permutations(range(1, 7), 3):
@@ -260,12 +265,32 @@ with tab4:
                          * scores_auto[c_] / (total_auto - scores_auto[a] - scores_auto[b]))
                     outcomes_auto.append({"3連単": f"{a}-{b}-{c_}", "モデル内の割合": p})
                 outcomes_auto.sort(key=lambda x: x["モデル内の割合"], reverse=True)
+                baseline_total = sum(baseline_scores_auto.values())
+                baseline_outcomes = []
+                for a, b, c_ in itertools.permutations(range(1, 7), 3):
+                    p0 = (baseline_scores_auto[a] / baseline_total
+                          * baseline_scores_auto[b] / (baseline_total - baseline_scores_auto[a])
+                          * baseline_scores_auto[c_] / (baseline_total - baseline_scores_auto[a] - baseline_scores_auto[b]))
+                    baseline_outcomes.append((f"{a}-{b}-{c_}", p0))
+                baseline_outcomes.sort(key=lambda x: x[1], reverse=True)
+                st.session_state["baseline_rank"] = {name: rank for rank, (name, _) in enumerate(baseline_outcomes, 1)}
                 st.session_state["auto_prediction"] = (day, place, race_no, outcomes_auto)
             except (ValueError, TypeError, ZeroDivisionError) as exc:
                 st.error(f"計算できませんでした：{exc}")
         predicted = st.session_state.get("auto_prediction")
         if predicted and predicted[:3] == (day, place, race_no):
             results_auto = predicted[3]
+            if st.session_state.get("finish_distribution"):
+                st.subheader("枠番別・過去10走の着順分布")
+                st.dataframe(st.session_state["finish_distribution"], hide_index=True, use_container_width=True)
+                st.caption("取得した同枠番の着順だけを集計。サンプルが少ないため参考値です。")
+            st.subheader("旧モデルと新モデルの順位比較")
+            baseline_rank = st.session_state.get("baseline_rank", {})
+            st.dataframe([{"3連単": x["3連単"], "旧順位（直近補正なし）": baseline_rank.get(x["3連単"], "—"), "新順位": i,
+                           "順位変化": (baseline_rank[x["3連単"]] - i) if x["3連単"] in baseline_rank else None}
+                          for i, x in enumerate(results_auto[:20], 1)], hide_index=True, use_container_width=True)
+            st.caption("これは同一レースでの順位変化の比較です。的中率の改善を証明するものではありません。")
+            st.info("スタートのばらつき（標準偏差）は過去各走のST実測値が必要です。現行の取得データでは確認できないため未計算です。")
             if st.session_state.get("recent_details"):
                 st.caption("過去10走の3着以内率による試験的な補正（有効5走以上・最大±6%）")
                 st.dataframe(st.session_state["recent_details"], hide_index=True, use_container_width=True)
