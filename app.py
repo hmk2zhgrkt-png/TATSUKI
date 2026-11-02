@@ -211,7 +211,55 @@ with tab4:
         for source_url in source_urls:
             st.caption(f"データ出典：{source_url}")
         st.caption("過去10走は今回と同じ枠番での直近10走。未取得は未取得と表示します。")
-        st.info("この画面では過去戦績の取得・表示まで対応。3連単の自動計算への連携は次の段階です。")
+        st.caption("展示タイム未取得時は7.0秒の仮置き値で試算します。展示後に更新してください。")
+        st.subheader("取得データで3連単を自動計算")
+        exhibition_inputs = {}
+        cols = st.columns(3)
+        for boat in range(1, 7):
+            with cols[(boat - 1) % 3]:
+                exhibition_inputs[boat] = st.number_input(f"{boat}号艇 展示タイム（秒・任意）", min_value=5.0, max_value=10.0, value=7.0, step=0.01, key=f"exhibit_{boat}")
+        if st.button("取得データで120通りを予想", key="auto_predict"):
+            try:
+                scores_auto = {}
+                for row in history_rows:
+                    boat = int(row["号艇"])
+                    rate = row["全国勝率"]
+                    avg_st = row["平均ST"]
+                    motor = row["モーター2連対率"]
+                    if any(x is None for x in (rate, avg_st, motor)):
+                        raise ValueError(f"{boat}号艇の必須データが欠けています。予想は実行しません。")
+                    if not (0 <= rate <= 10 and 0 <= avg_st <= 1 and 0 <= motor <= 100):
+                        raise ValueError(f"{boat}号艇の数値が範囲外です。")
+                    historical = VENUE_COURSE_HISTORICAL[place][boat - 1]
+                    score = (0.35 * rate / 10 + 0.15 * (1 - avg_st)
+                             + 0.20 * motor / 100
+                             + 0.10 * 7.0 / exhibition_inputs[boat]
+                             + 0.20 * historical / 50)
+                    scores_auto[boat] = max(0.001, score)
+                total_auto = sum(scores_auto.values())
+                outcomes_auto = []
+                for a, b, c_ in itertools.permutations(range(1, 7), 3):
+                    p = (scores_auto[a] / total_auto
+                         * scores_auto[b] / (total_auto - scores_auto[a])
+                         * scores_auto[c_] / (total_auto - scores_auto[a] - scores_auto[b]))
+                    outcomes_auto.append({"3連単": f"{a}-{b}-{c_}", "モデル内の割合": p})
+                outcomes_auto.sort(key=lambda x: x["モデル内の割合"], reverse=True)
+                st.session_state["auto_prediction"] = (day, place, race_no, outcomes_auto)
+            except (ValueError, TypeError, ZeroDivisionError) as exc:
+                st.error(f"計算できませんでした：{exc}")
+        predicted = st.session_state.get("auto_prediction")
+        if predicted and predicted[:3] == (day, place, race_no):
+            results_auto = predicted[3]
+            st.dataframe([{"順位": i, "3連単": x["3連単"], "モデル内の割合": f'{x["モデル内の割合"] * 100:.2f}%'}
+                          for i, x in enumerate(results_auto[:20], 1)], hide_index=True, use_container_width=True)
+            output_auto = io.StringIO()
+            writer_auto = csv.writer(output_auto)
+            writer_auto.writerow(["rank", "combination", "model_share"])
+            for i, x in enumerate(results_auto, 1):
+                writer_auto.writerow([i, x["3連単"], f'{x["モデル内の割合"]:.8f}'])
+            st.download_button("自動計算120通りをCSV保存", output_auto.getvalue().encode("utf-8-sig"),
+                               file_name="tatsuki_auto_predictions.csv", mime="text/csv", key="auto_csv")
+            st.caption("全国勝率・平均ST・モーター2連対率・開催場の長期コース統計・展示タイムを計算に使用。取得した過去10走の個別着順はまだ未反映。モデル内の割合は実際の的中確率ではありません。")
     st.divider()
     st.subheader("3連単予想エンジン v0.1")
     st.warning("固定ルールによる試作モデルです。表示する確率は未校正で、実際の的中確率や利益を保証しません。")
