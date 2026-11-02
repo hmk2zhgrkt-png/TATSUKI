@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import streamlit as st
+from history_data import load_race
 
 DB = Path(__file__).with_name("predictions.db")
 VENUES = ["桐生","戸田","江戸川","平和島","多摩川","浜名湖","蒲郡","常滑","津","三国","びわこ","住之江","尼崎","鳴門","丸亀","児島","宮島","徳山","下関","若松","芦屋","福岡","唐津","大村"]
@@ -190,6 +191,28 @@ with tab3:
         st.caption(f"結果記録済み {len(records)}件。仮想購入額0円の記録は回収率の分母に含まれません。")
 
 with tab4:
+    st.subheader("過去戦績の自動取得（新機能）")
+    st.write("日付・競艇場・レース番号を選ぶだけ。CSVの作成は不要です。")
+    auto_date = st.date_input("開催日", key="auto_date")
+    auto_venue = st.selectbox("開催場を選択", VENUES, index=18, key="auto_venue")
+    auto_race = st.selectbox("レース番号", list(range(1, 13)), index=3, format_func=lambda n: f"{n}R", key="auto_race")
+    if st.button("選手の過去戦績を取得", key="fetch_history"):
+        try:
+            with st.spinner("公開データを取得中..."):
+                history_rows, source_urls = load_race(auto_date, auto_venue, auto_race)
+            st.session_state["loaded_history"] = (auto_date, auto_venue, auto_race, history_rows, source_urls)
+        except Exception as exc:
+            st.error(f"取得できませんでした：{exc}")
+    saved = st.session_state.get("loaded_history")
+    if saved:
+        day, place, race_no, history_rows, source_urls = saved
+        st.success(f"{day} {place}{race_no}R：6艇のデータを取得しました")
+        st.dataframe(history_rows, hide_index=True, use_container_width=True)
+        for source_url in source_urls:
+            st.caption(f"データ出典：{source_url}")
+        st.caption("過去10走は今回と同じ枠番での直近10走。未取得は未取得と表示します。")
+        st.info("この画面では過去戦績の取得・表示まで対応。3連単の自動計算への連携は次の段階です。")
+    st.divider()
     st.subheader("3連単予想エンジン v0.1")
     st.warning("固定ルールによる試作モデルです。表示する確率は未校正で、実際の的中確率や利益を保証しません。")
     st.write("CSV不要。6艇の数値を表に入力すると、120通りの3連単を同じ計算式で順位付けします。")
