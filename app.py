@@ -114,6 +114,24 @@ with tab1:
     st.caption("気象条件は未入力のままでもOK。実測値がなければ未取得として扱います。")
     st.caption("風向の有利不利は場の水面・風向・風速・進入コースによって変わります。現時点では自動補正しません。")
     st.divider()
+    st.subheader("スタート展示・モーター情報（任意）")
+    st.caption("出走表や展示情報から確認できた数値だけ入力。空欄は未取得として扱います。")
+    detail_rows = []
+    for lane in range(1, 7):
+        with st.expander(f"{lane}号艇の追加情報"):
+            entry = st.selectbox("スタート展示の進入コース", ["未取得", "1", "2", "3", "4", "5", "6"], key=f"entry_{lane}")
+            exhibit_st = st.number_input("展示ST（秒）", min_value=-1.0, max_value=1.0, value=None, step=0.01, format="%.2f", key=f"exst_{lane}", placeholder="未取得")
+            motor_number = st.number_input("モーター番号", min_value=1, max_value=999, value=None, step=1, key=f"motorno_{lane}", placeholder="未取得")
+            motor_2 = st.number_input("モーター2連対率（%）", min_value=0.0, max_value=100.0, value=None, step=0.1, key=f"motor2_{lane}", placeholder="未取得")
+            motor_3 = st.number_input("モーター3連対率（%）", min_value=0.0, max_value=100.0, value=None, step=0.1, key=f"motor3_{lane}", placeholder="未取得")
+            boat_number = st.number_input("ボート番号", min_value=1, max_value=999, value=None, step=1, key=f"boatno_{lane}", placeholder="未取得")
+            boat_2 = st.number_input("ボート2連対率（%）", min_value=0.0, max_value=100.0, value=None, step=0.1, key=f"boat2_{lane}", placeholder="未取得")
+            tilt = st.number_input("チルト角度（度）", min_value=-2.0, max_value=3.0, value=None, step=0.5, key=f"tilt_{lane}", placeholder="未取得")
+            detail_rows.append({"号艇": lane, "展示進入": entry, "展示ST": exhibit_st, "モーター番号": motor_number, "モーター2連対率": motor_2, "モーター3連対率": motor_3, "ボート番号": boat_number, "ボート2連対率": boat_2, "チルト": tilt})
+    st.caption("追加情報は現在表示・確認用で、まだ予測スコアに反映していません。展示進入は本番の進入を保証しません。")
+    with st.expander("追加情報の確認"):
+        st.dataframe(detail_rows, use_container_width=True, hide_index=True)
+    st.divider()
     st.subheader("CSVから分析")
     st.write("実際に取得したレース情報をCSVでアップロードしてください。未取得データを架空の値で補いません。")
     st.code(",".join(FIELDS), language="text")
