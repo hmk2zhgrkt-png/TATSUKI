@@ -236,6 +236,22 @@ with tab4:
                              + 0.10 * 7.0 / exhibition_inputs[boat]
                              + 0.20 * historical / 50)
                     scores_auto[boat] = max(0.001, score)
+                # Recent finishing positions are an experimental, capped adjustment.
+                # Non-numeric finishes (F/L/欠場 etc.) are excluded, never treated as 6th.
+                recent_details = []
+                for row in history_rows:
+                    boat = int(row["号艇"])
+                    raw = str(row.get("過去10走", ""))
+                    finishes = [int(token) for token in raw.split() if token in ("1", "2", "3", "4", "5", "6")]
+                    if len(finishes) >= 5:
+                        top3_rate = sum(v <= 3 for v in finishes) / len(finishes)
+                        # Baseline 50% top-three; cap effect to ±6%.
+                        factor = 1 + max(-0.06, min(0.06, 0.12 * (top3_rate - 0.5)))
+                        scores_auto[boat] *= factor
+                        recent_details.append({"号艇": boat, "有効走数": len(finishes), "3着以内率": f"{top3_rate*100:.1f}%", "スコア補正": f"{(factor-1)*100:+.1f}%"})
+                    else:
+                        recent_details.append({"号艇": boat, "有効走数": len(finishes), "3着以内率": "不足", "スコア補正": "なし"})
+                st.session_state["recent_details"] = recent_details
                 total_auto = sum(scores_auto.values())
                 outcomes_auto = []
                 for a, b, c_ in itertools.permutations(range(1, 7), 3):
@@ -250,6 +266,9 @@ with tab4:
         predicted = st.session_state.get("auto_prediction")
         if predicted and predicted[:3] == (day, place, race_no):
             results_auto = predicted[3]
+            if st.session_state.get("recent_details"):
+                st.caption("過去10走の3着以内率による試験的な補正（有効5走以上・最大±6%）")
+                st.dataframe(st.session_state["recent_details"], hide_index=True, use_container_width=True)
             st.dataframe([{"順位": i, "3連単": x["3連単"], "モデル内の割合": f'{x["モデル内の割合"] * 100:.2f}%'}
                           for i, x in enumerate(results_auto[:20], 1)], hide_index=True, use_container_width=True)
             output_auto = io.StringIO()
@@ -259,7 +278,7 @@ with tab4:
                 writer_auto.writerow([i, x["3連単"], f'{x["モデル内の割合"]:.8f}'])
             st.download_button("自動計算120通りをCSV保存", output_auto.getvalue().encode("utf-8-sig"),
                                file_name="tatsuki_auto_predictions.csv", mime="text/csv", key="auto_csv")
-            st.caption("全国勝率・平均ST・モーター2連対率・開催場の長期コース統計・展示タイムを計算に使用。取得した過去10走の個別着順はまだ未反映。モデル内の割合は実際の的中確率ではありません。")
+            st.caption("全国勝率・平均ST・モーター2連対率・開催場の長期コース統計・展示タイムを計算に使用。過去10走の着順が5走以上取得できた艇は3着以内率で最大±6%の試験的補正。データ不足の艇は補正なし。枠番別データの定義や効果は今後検証が必要です。モデル内の割合は実際の的中確率ではありません。")
     st.divider()
     st.subheader("3連単予想エンジン v0.1")
     st.warning("固定ルールによる試作モデルです。表示する確率は未校正で、実際の的中確率や利益を保証しません。")
