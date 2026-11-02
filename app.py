@@ -304,6 +304,37 @@ with tab4:
             st.download_button("自動計算120通りをCSV保存", output_auto.getvalue().encode("utf-8-sig"),
                                file_name="tatsuki_auto_predictions.csv", mime="text/csv", key="auto_csv")
             st.caption("全国勝率・平均ST・モーター2連対率・開催場の長期コース統計・展示タイムを計算に使用。過去10走の着順が5走以上取得できた艇は3着以内率で最大±6%の試験的補正。データ不足の艇は補正なし。枠番別データの定義や効果は今後検証が必要です。モデル内の割合は実際の的中確率ではありません。")
+            st.subheader("実際の結果と予想順位を照合")
+            st.caption("レース終了後に着順を入力してください。結果を見てからの検証は、事前予想の的中実績には含められません。")
+            result_cols = st.columns(3)
+            actual_order = []
+            for idx, label in enumerate(("1着", "2着", "3着")):
+                with result_cols[idx]:
+                    actual_order.append(st.selectbox(label, list(range(1, 7)), index=(0, 2, 5)[idx],
+                                                     key=f"actual_{idx}"))
+            if st.button("実際の着順で照合", key="verify_auto_prediction"):
+                if len(set(actual_order)) != 3:
+                    st.error("1着・2着・3着は異なる号艇を選んでください。")
+                else:
+                    actual = "-".join(str(x) for x in actual_order)
+                    new_ranks = {x["3連単"]: i for i, x in enumerate(results_auto, 1)}
+                    old_rank = baseline_rank.get(actual)
+                    new_rank = new_ranks.get(actual)
+                    if old_rank is None or new_rank is None:
+                        st.error("予想データを照合できませんでした。")
+                    else:
+                        st.session_state["last_verified"] = (day, place, race_no, actual, old_rank, new_rank)
+            verified = st.session_state.get("last_verified")
+            if verified and verified[:3] == (day, place, race_no):
+                _, _, _, actual, old_rank, new_rank = verified
+                st.success(f"実際の結果：{actual}")
+                st.metric("旧モデルの予想順位", f"{old_rank} / 120")
+                st.metric("新モデルの予想順位", f"{new_rank} / 120",
+                          delta=f"{old_rank-new_rank:+d}位（プラスが改善）")
+                st.write(f"上位5点に含まれたか：旧 {'○' if old_rank <= 5 else '×'} ／ 新 {'○' if new_rank <= 5 else '×'}")
+                st.write(f"上位10点に含まれたか：旧 {'○' if old_rank <= 10 else '×'} ／ 新 {'○' if new_rank <= 10 else '×'}")
+                st.caption("照合は現在の画面上の予想に対して実施。複数レースの成績集計・永続保存は未対応です。")
+
     st.divider()
     st.subheader("3連単予想エンジン v0.1")
     st.warning("固定ルールによる試作モデルです。表示する確率は未校正で、実際の的中確率や利益を保証しません。")
