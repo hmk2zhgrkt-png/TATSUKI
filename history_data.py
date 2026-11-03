@@ -57,3 +57,32 @@ def load_race(day, venue, race_number):
             "過去10走": " ".join(history) if history else "未取得",
         })
     return result, [u for u in (cards_url,waku_url) if u]
+
+def fetch_actual_result(race_key):
+    """Return confirmed 3-ren-tan finish or None if the public snapshot is not yet present."""
+    import re
+    match = re.fullmatch(r"(\\d{8})-(\\d{2})-(\\d{2})", race_key)
+    if not match:
+        raise ValueError("保存されたレースIDが不正です")
+    ymd, venue, race = match.groups()
+    day = date(int(ymd[:4]), int(ymd[4:6]), int(ymd[6:]))
+    code = ymd + venue + race
+    url = f"https://boatracecsv.github.io/data/results/realtime/{day:%Y/%m/%d}.csv"
+    req = Request(url, headers={"User-Agent":"TATSUKI-research/0.1"})
+    try:
+        with urlopen(req, timeout=12) as response:
+            body = response.read().decode("utf-8-sig")
+    except HTTPError as exc:
+        if exc.code == 404:
+            return None, url
+        raise
+    for row in csv.DictReader(io.StringIO(body)):
+        if row.get("レースコード", "").strip() != code:
+            continue
+        places = [str(row.get(f"{n}着_艇番", "")).strip() for n in (1, 2, 3)]
+        if any(v not in ("1", "2", "3", "4", "5", "6") for v in places):
+            raise ValueError("確定した上位3艇を取得できません。欠場・同着などを確認してください")
+        if len(set(places)) != 3:
+            raise ValueError("着順に重複があります。自動登録は中止しました")
+        return "-".join(places), url
+    return None, url
