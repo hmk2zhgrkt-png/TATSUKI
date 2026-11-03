@@ -468,12 +468,15 @@ if saved_checks:
                 if actual_auto is None:
                     st.warning("結果はまだ公開データにありません。少し時間をおいて再実行してください。")
                 else:
+                    from official_verification import verify_official_trifecta
+                    official_url = verify_official_trifecta(selected_key, actual_auto)
                     tracking.verify(conn, selected_key, actual_auto)
-                    st.success(f"確定結果 {actual_auto} を保存し、予想と照合しました。画面を再読み込みすると集計に反映されます。")
+                    st.success(f"公式サイトとCSVが一致：{actual_auto}。予想と照合しました。")
+                    st.caption(f"公式照合元：{official_url}")
                     st.caption(f"結果データ：{source_auto}")
             except Exception as exc:
                 st.error(f"自動取得・照合できませんでした：{exc}")
-        st.caption("自動取得できない場合のみ、以下から手入力できます。")
+        st.warning("公式照合ができない・結果が不一致の場合、自動登録しません。手入力は公式結果を確認した場合だけ使用してください。")
         actual_boats = []
         check_cols = st.columns(3)
         for idx, label in enumerate(("1着", "2着", "3着")):
