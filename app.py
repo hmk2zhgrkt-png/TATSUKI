@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import streamlit as st
-from history_data import load_race, fetch_actual_result
+from history_data import load_race
 import trifecta_tracking as tracking
 
 DB = Path(__file__).with_name("predictions.db")
@@ -433,6 +433,7 @@ if saved_checks:
         if st.button("公開データから結果を自動取得・照合", key="auto_actual_result"):
             try:
                 with st.spinner("確定着順を確認中..."):
+                    from history_data import fetch_actual_result
                     actual_auto, source_auto = fetch_actual_result(selected_key)
                 if actual_auto is None:
                     st.warning("結果はまだ公開データにありません。少し時間をおいて再実行してください。")
