@@ -96,7 +96,7 @@ def fetch_actual_result(race_key):
     from urllib.request import Request, urlopen
     from urllib.error import HTTPError
     from history_data import VENUE_CODES
-    match = re.fullmatch(r"(\\d{8})-(\\d{2})-(\\d{2})", race_key)
+    match = re.fullmatch(r"(\d{8})-(\d{2})-(\d{2})", race_key)
     if match is None:
         raise ValueError("レースIDが不正です")
     ymd, venue, race = match.groups()
