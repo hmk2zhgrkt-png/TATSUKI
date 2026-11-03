@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import streamlit as st
-from history_data import load_race
+from history_data import load_race, fetch_actual_result
 import trifecta_tracking as tracking
 
 DB = Path(__file__).with_name("predictions.db")
@@ -430,6 +430,19 @@ if saved_checks:
     if pending:
         st.subheader("保存済み予想に結果を登録")
         selected_key = st.selectbox("レース", [x["レース"] for x in pending], key="check_race")
+        if st.button("公開データから結果を自動取得・照合", key="auto_actual_result"):
+            try:
+                with st.spinner("確定着順を確認中..."):
+                    actual_auto, source_auto = fetch_actual_result(selected_key)
+                if actual_auto is None:
+                    st.warning("結果はまだ公開データにありません。少し時間をおいて再実行してください。")
+                else:
+                    tracking.verify(conn, selected_key, actual_auto)
+                    st.success(f"確定結果 {actual_auto} を保存し、予想と照合しました。画面を再読み込みすると集計に反映されます。")
+                    st.caption(f"結果データ：{source_auto}")
+            except Exception as exc:
+                st.error(f"自動取得・照合できませんでした：{exc}")
+        st.caption("自動取得できない場合のみ、以下から手入力できます。")
         actual_boats = []
         check_cols = st.columns(3)
         for idx, label in enumerate(("1着", "2着", "3着")):
