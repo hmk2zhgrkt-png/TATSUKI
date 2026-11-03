@@ -88,6 +88,37 @@ def evaluate(groups):
                           "_probability": p})
     return sorted(picks, key=lambda x: x["期待回収倍率"], reverse=True)
 
+
+def fetch_actual_result(race_key):
+    """Read publicly available results, returning None if not yet available."""
+    import re
+    from datetime import date
+    from urllib.request import Request, urlopen
+    from urllib.error import HTTPError
+    from history_data import VENUE_CODES
+    match = re.fullmatch(r"(\\d{8})-(\\d{2})-(\\d{2})", race_key)
+    if match is None:
+        raise ValueError("レースIDが不正です")
+    ymd, venue, race = match.groups()
+    day = date.fromisoformat(f"{ymd[:4]}-{ymd[4:6]}-{ymd[6:]}")
+    url = f"https://boatracecsv.github.io/data/results/realtime/{day:%Y/%m/%d}.csv"
+    try:
+        with urlopen(Request(url, headers={"User-Agent": "TATSUKI-research/0.1"}), timeout=12) as response:
+            content = response.read().decode("utf-8-sig")
+    except HTTPError as exc:
+        if exc.code == 404:
+            return None, url
+        raise
+    code = ymd + venue + race
+    for row in csv.DictReader(io.StringIO(content)):
+        if row.get("レースコード", "").strip() != code:
+            continue
+        places = [str(row.get(f"{n}着_艇番", "")).strip() for n in (1, 2, 3)]
+        if len(set(places)) != 3 or any(p not in "123456" or len(p) != 1 for p in places):
+            raise ValueError("着順の形式が不正です。手入力で確認してください。")
+        return "-".join(places), url
+    return None, url
+
 st.set_page_config(page_title="競艇AI分析 | TATSUKI", layout="centered")
 st.title("🚤 競艇AI分析 TATSUKI")
 st.caption("試作版｜実データの自動取得なし・予測精度は未検証・自動投票なし")
@@ -433,7 +464,6 @@ if saved_checks:
         if st.button("公開データから結果を自動取得・照合", key="auto_actual_result"):
             try:
                 with st.spinner("確定着順を確認中..."):
-                    from history_data import fetch_actual_result
                     actual_auto, source_auto = fetch_actual_result(selected_key)
                 if actual_auto is None:
                     st.warning("結果はまだ公開データにありません。少し時間をおいて再実行してください。")
