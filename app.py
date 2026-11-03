@@ -9,6 +9,7 @@ from pathlib import Path
 
 import streamlit as st
 from history_data import load_race
+import trifecta_tracking as tracking
 
 DB = Path(__file__).with_name("predictions.db")
 VENUES = ["桐生","戸田","江戸川","平和島","多摩川","浜名湖","蒲郡","常滑","津","三国","びわこ","住之江","尼崎","鳴門","丸亀","児島","宮島","徳山","下関","若松","芦屋","福岡","唐津","大村"]
@@ -93,6 +94,7 @@ st.caption("試作版｜実データの自動取得なし・予測精度は未�
 st.warning("表示する確率は簡易計算による参考値で、実際の的中確率ではありません。利益を保証しません。")
 tab4, tab1, tab2, tab3 = st.tabs(["3連単予想（試作）", "旧CSV分析", "旧結果記録", "旧成績"])
 conn = database()
+tracking.setup(conn)
 
 with tab1:
     st.subheader("レース条件")
@@ -304,6 +306,16 @@ with tab4:
             st.download_button("自動計算120通りをCSV保存", output_auto.getvalue().encode("utf-8-sig"),
                                file_name="tatsuki_auto_predictions.csv", mime="text/csv", key="auto_csv")
             st.caption("全国勝率・平均ST・モーター2連対率・開催場の長期コース統計・展示タイムを計算に使用。過去10走の着順が5走以上取得できた艇は3着以内率で最大±6%の試験的補正。データ不足の艇は補正なし。枠番別データの定義や効果は今後検証が必要です。モデル内の割合は実際の的中確率ではありません。")
+            st.subheader("予想を保存して検証")
+            race_key = f"{day:%Y%m%d}-{VENUES.index(place)+1:02d}-{race_no:02d}"
+            st.caption("予想の順位120通りを保存します。レース当日・過去の日付の予想は事前的中実績として扱いません。")
+            if st.button("このレースの予想を保存", key="save_trifecta_snapshot"):
+                try:
+                    new_rank = {x["3連単"]: i for i, x in enumerate(results_auto, 1)}
+                    category = tracking.save(conn, race_key, day, baseline_rank, new_rank)
+                    st.success(f"予想を保存しました（{category}）。")
+                except (ValueError, KeyError) as exc:
+                    st.error(str(exc))
             st.subheader("実際の結果と予想順位を照合")
             st.caption("レース終了後に着順を入力してください。結果を見てからの検証は、事前予想の的中実績には含められません。")
             result_cols = st.columns(3)
@@ -333,7 +345,7 @@ with tab4:
                           delta=f"{old_rank-new_rank:+d}位（プラスが改善）")
                 st.write(f"上位5点に含まれたか：旧 {'○' if old_rank <= 5 else '×'} ／ 新 {'○' if new_rank <= 5 else '×'}")
                 st.write(f"上位10点に含まれたか：旧 {'○' if old_rank <= 10 else '×'} ／ 新 {'○' if new_rank <= 10 else '×'}")
-                st.caption("照合は現在の画面上の予想に対して実施。複数レースの成績集計・永続保存は未対応です。")
+                st.caption("上記は現在の画面の予想との照合。保存済み予想の結果登録は下の「検証成績」で行ってください。")
 
     st.divider()
     st.subheader("3連単予想エンジン v0.1")
@@ -394,5 +406,52 @@ with tab4:
                                file_name="tatsuki_3ren_predictions.csv", mime="text/csv")
         except (ValueError, TypeError, KeyError, ZeroDivisionError) as exc:
             st.error(f"入力を確認してください：{exc}")
+
+st.divider()
+st.header("📊 3連単・検証成績")
+st.caption("保存済みの予想と実際の結果を照合。データはStreamlitの一時的なSQLiteに保存されるため、再起動・再デプロイで消える可能性があります。必ずJSONをダウンロードして保管してください。")
+saved_checks = tracking.report(conn)
+if saved_checks:
+    st.dataframe(saved_checks, hide_index=True, use_container_width=True)
+    completed = [x for x in saved_checks if x["新順位"] is not None]
+    prospective = [x for x in completed if x["区分"] == "事前登録（日付基準）"]
+    st.write(f"保存 {len(saved_checks)}件／結果登録 {len(completed)}件／前日以前に保存した予想の結果登録 {len(prospective)}件")
+    if completed:
+        st.subheader("結果登録済みレースの集計（事後を含む）")
+        n = len(completed)
+        for label, key in [("上位5点","Top5"),("上位10点","Top10")]:
+            old_rate = sum(x[f"旧{key}"] for x in completed)/n
+            new_rate = sum(x[f"新{key}"] for x in completed)/n
+            st.write(f"{label}：旧 {old_rate:.1%} ／ 新 {new_rate:.1%}")
+        st.write(f"平均予想順位：旧 {sum(x['旧順位'] for x in completed)/n:.1f} ／ 新 {sum(x['新順位'] for x in completed)/n:.1f}")
+        st.write(f"新モデルが改善した割合：{sum(x['新順位']<x['旧順位'] for x in completed)/n:.1%}")
+        st.caption("当日・事後の照合も含まれます。事前予測の成績として解釈しないでください。")
+    pending = [x for x in saved_checks if x["新順位"] is None]
+    if pending:
+        st.subheader("保存済み予想に結果を登録")
+        selected_key = st.selectbox("レース", [x["レース"] for x in pending], key="check_race")
+        actual_boats = []
+        check_cols = st.columns(3)
+        for idx, label in enumerate(("1着", "2着", "3着")):
+            with check_cols[idx]:
+                actual_boats.append(st.selectbox(label, list(range(1,7)), index=idx, key=f"saved_actual_{idx}"))
+        if st.button("保存済み予想と照合・結果を確定", key="commit_actual"):
+            try:
+                tracking.verify(conn, selected_key, "-".join(str(x) for x in actual_boats))
+                st.success("結果を登録しました。成績を更新するには画面を再読み込みしてください。")
+            except ValueError as exc:
+                st.error(str(exc))
+else:
+    st.info("まだ保存済みの3連単予想はありません。")
+st.download_button("検証記録をJSONでバックアップ", tracking.export_json(conn).encode("utf-8"),
+                   file_name="tatsuki_trifecta_backup.json", mime="application/json", key="backup_trifecta")
+with st.expander("バックアップから復元"):
+    backup_file = st.file_uploader("以前保存したTATSUKI JSON", type=["json"], key="restore_trifecta")
+    if backup_file is not None and st.button("バックアップを取り込む", key="restore_trifecta_button"):
+        try:
+            count = tracking.import_json(conn, backup_file.getvalue().decode("utf-8"))
+            st.success(f"{count}件を確認して取り込みました（重複レースはスキップ）。再読み込みで反映されます。")
+        except (ValueError, KeyError, TypeError) as exc:
+            st.error(f"復元に失敗しました：{exc}")
 
 conn.close()
