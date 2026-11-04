@@ -450,18 +450,27 @@ if st.button("過去レースを検証", key="run_backtest"):
         st.error("今日・未来の日付は対象外です。終了済みの過去の日付を選択してください。")
     else:
         from app_backtest import backtest
-        progress_bt = st.progress(0.0)
-        with st.spinner("出走表と公式結果を照合しています。数分かかる場合があります。"):
-            def checked_lookup(day, venue, race):
-                from history_data import VENUE_CODES
-                from official_verification import verify_official_trifecta
-                key = f"{day:%Y%m%d}-{VENUE_CODES[venue]:02d}-{race:02d}"
-                actual, source = fetch_actual_result(key)
-                if actual:
-                    verify_official_trifecta(key, actual)
-                return actual, source
-            st.session_state["backtest_rows"] = backtest(bt_day,bt_venue,bt_count,VENUE_COURSE_HISTORICAL,progress_bt.progress,checked_lookup)
-        st.session_state["backtest_meta"] = (bt_day,bt_venue,bt_count)
+        try:
+            progress_bt = st.progress(0)
+            with st.spinner("出走表と公式結果を照合しています。数分かかる場合があります。"):
+                def checked_lookup(day, venue, race):
+                    from history_data import VENUE_CODES
+                    from official_verification import verify_official_trifecta
+                    key = f"{day:%Y%m%d}-{VENUE_CODES[venue]:02d}-{race:02d}"
+                    actual, source = fetch_actual_result(key)
+                    if actual:
+                        verify_official_trifecta(key, actual)
+                    return actual, source
+                def update_progress(value):
+                    progress_bt.progress(min(100, max(0, int(value * 100))))
+                rows_bt = backtest(bt_day, bt_venue, bt_count, VENUE_COURSE_HISTORICAL,
+                                   progress=update_progress, result_lookup=checked_lookup)
+                st.session_state["backtest_rows"] = rows_bt
+                st.session_state["backtest_meta"] = (bt_day, bt_venue, bt_count)
+        except Exception as exc:
+            st.error(f"検証処理でエラー：{type(exc).__name__}: {exc}")
+            st.info("処理は途中で停止しました。成績は更新していません。")
+
 bt_rows = st.session_state.get("backtest_rows")
 if bt_rows:
     st.dataframe(bt_rows,hide_index=True,use_container_width=True)
