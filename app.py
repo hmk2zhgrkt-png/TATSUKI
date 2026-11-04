@@ -499,7 +499,8 @@ if st.button("複数日・複数場をまとめて検証", key="run_batch_backte
                             for place in batch_venues]
             def checked_batch_result(day, venue, race):
                 key = f"{day:%Y%m%d}-{VENUE_CODES[venue]:02d}-{race:02d}"
-                actual, source = fetch_actual_result(key)
+                from backtest_cache import cached_result
+                actual, source = cached_result(day, VENUE_CODES[venue], race)
                 if actual:
                     verify_official_trifecta(key, actual)
                 return actual, source
