@@ -1,6 +1,7 @@
 """Read public BoatraceCSV snapshots for one race. No guessed values."""
 import csv
 import io
+from functools import lru_cache
 from datetime import date
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
@@ -8,15 +9,18 @@ from urllib.request import Request, urlopen
 BASE = "https://boatracecsv.github.io/data/programs"
 VENUE_CODES = {"桐生":1,"戸田":2,"江戸川":3,"平和島":4,"多摩川":5,"浜名湖":6,"蒲郡":7,"常滑":8,"津":9,"三国":10,"びわこ":11,"住之江":12,"尼崎":13,"鳴門":14,"丸亀":15,"児島":16,"宮島":17,"徳山":18,"下関":19,"若松":20,"芦屋":21,"福岡":22,"唐津":23,"大村":24}
 
-def _get_row(kind, day, race_code):
+@lru_cache(maxsize=48)
+def _day_rows(kind, day):
     url = f"{BASE}/{kind}/{day:%Y/%m/%d}.csv"
     req = Request(url, headers={"User-Agent":"TATSUKI-research/0.1"})
     with urlopen(req, timeout=12) as response:
         body = response.read().decode("utf-8-sig")
-    for row in csv.DictReader(io.StringIO(body)):
-        if row.get("レースコード", "").strip() == race_code:
-            return row, url
-    return None, url
+    return {row.get("レースコード", "").strip(): row
+            for row in csv.DictReader(io.StringIO(body))}, url
+
+def _get_row(kind, day, race_code):
+    rows, url = _day_rows(kind, day)
+    return rows.get(race_code), url
 
 def load_race(day, venue, race_number):
     if not isinstance(day, date) or venue not in VENUE_CODES or not 1 <= race_number <= 12:
