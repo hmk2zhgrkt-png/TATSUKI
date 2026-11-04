@@ -443,7 +443,7 @@ st.header("🧪 過去レースの予想精度を検証")
 st.caption("過去の出走表に記録されたレース前情報だけを使い、旧・新モデルの予想順位を比較します。展示タイムは両モデルとも7.0秒固定。公式結果との照合ができないレースは集計対象外です。")
 bt_day = st.date_input("検証する過去の日付", key="bt_day")
 bt_venue = st.selectbox("検証する開催場", VENUES, index=18, key="bt_venue")
-bt_count = st.selectbox("検証レース数（1Rから順番）", [3,6,12], index=0, key="bt_count")
+bt_count = st.selectbox("検証レース数（1Rから順番）", list(range(1,13)), index=2, key="bt_count")
 if st.button("過去レースを検証", key="run_backtest"):
     from datetime import datetime, timedelta, timezone
     if bt_day >= datetime.now(timezone(timedelta(hours=9))).date():
@@ -452,7 +452,15 @@ if st.button("過去レースを検証", key="run_backtest"):
         from app_backtest import backtest
         progress_bt = st.progress(0.0)
         with st.spinner("出走表と公式結果を照合しています。数分かかる場合があります。"):
-            st.session_state["backtest_rows"] = backtest(bt_day,bt_venue,bt_count,VENUE_COURSE_HISTORICAL,progress_bt.progress)
+            def checked_lookup(day, venue, race):
+                from history_data import VENUE_CODES
+                from official_verification import verify_official_trifecta
+                key = f"{day:%Y%m%d}-{VENUE_CODES[venue]:02d}-{race:02d}"
+                actual, source = fetch_actual_result(key)
+                if actual:
+                    verify_official_trifecta(key, actual)
+                return actual, source
+            st.session_state["backtest_rows"] = backtest(bt_day,bt_venue,bt_count,VENUE_COURSE_HISTORICAL,progress_bt.progress,checked_lookup)
         st.session_state["backtest_meta"] = (bt_day,bt_venue,bt_count)
 bt_rows = st.session_state.get("backtest_rows")
 if bt_rows:
