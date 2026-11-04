@@ -464,7 +464,7 @@ if st.button("過去レースを検証", key="run_backtest"):
                 def update_progress(value):
                     progress_bt.progress(min(100, max(0, int(value * 100))))
                 rows_bt = backtest(bt_day, bt_venue, bt_count, VENUE_COURSE_HISTORICAL,
-                                   progress=update_progress, result_lookup=checked_lookup)
+                                   update_progress, checked_lookup)
                 st.session_state["backtest_rows"] = rows_bt
                 st.session_state["backtest_meta"] = (bt_day, bt_venue, bt_count)
         except Exception as exc:
