@@ -61,7 +61,7 @@ def load_race(day, venue, race_number):
 def fetch_actual_result(race_key):
     """Return confirmed 3-ren-tan finish or None if the public snapshot is not yet present."""
     import re
-    match = re.fullmatch(r"(\\d{8})-(\\d{2})-(\\d{2})", race_key)
+    match = re.fullmatch(r"(\d{8})-(\d{2})-(\d{2})", race_key)
     if not match:
         raise ValueError("保存されたレースIDが不正です")
     ymd, venue, race = match.groups()
