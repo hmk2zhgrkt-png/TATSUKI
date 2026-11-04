@@ -31,7 +31,7 @@ def rank_race(rows, venue, course_rates):
         return {name:i for i,(name,_) in enumerate(values,1)}
     return ranks(base),ranks(adjusted)
 
-def backtest(day, venue, count, course_rates, progress=None):
+def backtest(day, venue, count, course_rates, progress=None, result_lookup=None):
     from app_backtest_results import result_for_race
     records=[]
     for race in range(1,count+1):
@@ -39,7 +39,7 @@ def backtest(day, venue, count, course_rates, progress=None):
         try:
             rows,_=load_race(day,venue,race)
             old,new=rank_race(rows,venue,course_rates)
-            actual,source=result_for_race(day,venue,race)
+            actual,source=(result_lookup(day,venue,race) if result_lookup else result_for_race(day,venue,race))
             if not actual:
                 item["状態"]="結果未公開"
             else:
