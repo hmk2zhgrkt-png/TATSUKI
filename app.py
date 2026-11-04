@@ -439,6 +439,37 @@ with tab4:
             st.error(f"入力を確認してください：{exc}")
 
 st.divider()
+st.header("🧪 過去レースの予想精度を検証")
+st.caption("過去の出走表に記録されたレース前情報だけを使い、旧・新モデルの予想順位を比較します。展示タイムは両モデルとも7.0秒固定。公式結果との照合ができないレースは集計対象外です。")
+bt_day = st.date_input("検証する過去の日付", key="bt_day")
+bt_venue = st.selectbox("検証する開催場", VENUES, index=18, key="bt_venue")
+bt_count = st.selectbox("検証レース数（1Rから順番）", [3,6,12], index=0, key="bt_count")
+if st.button("過去レースを検証", key="run_backtest"):
+    from datetime import datetime, timedelta, timezone
+    if bt_day >= datetime.now(timezone(timedelta(hours=9))).date():
+        st.error("今日・未来の日付は対象外です。終了済みの過去の日付を選択してください。")
+    else:
+        from app_backtest import backtest
+        progress_bt = st.progress(0.0)
+        with st.spinner("出走表と公式結果を照合しています。数分かかる場合があります。"):
+            st.session_state["backtest_rows"] = backtest(bt_day,bt_venue,bt_count,VENUE_COURSE_HISTORICAL,progress_bt.progress)
+        st.session_state["backtest_meta"] = (bt_day,bt_venue,bt_count)
+bt_rows = st.session_state.get("backtest_rows")
+if bt_rows:
+    st.dataframe(bt_rows,hide_index=True,use_container_width=True)
+    valid_bt = [r for r in bt_rows if r.get("状態")=="照合済み"]
+    st.write(f"照合成功：{len(valid_bt)} / {len(bt_rows)}レース")
+    if valid_bt:
+        n_bt=len(valid_bt)
+        st.write(f"上位1点：旧 {sum(r['旧順位']==1 for r in valid_bt)/n_bt:.1%} ／ 新 {sum(r['新順位']==1 for r in valid_bt)/n_bt:.1%}")
+        for label in ("Top5","Top10"):
+            st.write(f"{label}：旧 {sum(r['旧'+label] for r in valid_bt)/n_bt:.1%} ／ 新 {sum(r['新'+label] for r in valid_bt)/n_bt:.1%}")
+        st.write(f"平均予想順位：旧 {sum(r['旧順位'] for r in valid_bt)/n_bt:.1f} ／ 新 {sum(r['新順位'] for r in valid_bt)/n_bt:.1f}")
+        st.write(f"新モデルの順位改善率：{sum(r['新順位']<r['旧順位'] for r in valid_bt)/n_bt:.1%}")
+    st.caption("少数レースの試験的な過去検証です。過去成績の定義やデータの時点は今後も確認が必要です。将来の的中率・収益を保証しません。")
+    st.download_button("検証結果をCSV保存", __import__("pandas").DataFrame(bt_rows).to_csv(index=False).encode("utf-8-sig"),file_name="tatsuki_backtest.csv",mime="text/csv",key="bt_csv")
+
+st.divider()
 st.header("📊 3連単・検証成績")
 st.caption("保存済みの予想と実際の結果を照合。データはStreamlitの一時的なSQLiteに保存されるため、再起動・再デプロイで消える可能性があります。必ずJSONをダウンロードして保管してください。")
 saved_checks = tracking.report(conn)
