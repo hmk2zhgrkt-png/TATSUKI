@@ -449,7 +449,10 @@ if st.button("過去レースを検証", key="run_backtest"):
     if bt_day >= datetime.now(timezone(timedelta(hours=9))).date():
         st.error("今日・未来の日付は対象外です。終了済みの過去の日付を選択してください。")
     else:
-        from app_backtest import backtest
+        import importlib
+        import app_backtest
+        importlib.reload(app_backtest)
+        backtest = app_backtest.backtest
         try:
             progress_bt = st.progress(0)
             with st.spinner("出走表と公式結果を照合しています。数分かかる場合があります。"):
