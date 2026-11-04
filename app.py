@@ -460,6 +460,39 @@ if saved_checks:
     pending = [x for x in saved_checks if x["新順位"] is None]
     if pending:
         st.subheader("保存済み予想に結果を登録")
+
+        st.caption("未登録のレースをまとめて確認できます。公式サイトとの照合が通った結果だけ保存します。")
+        if st.button("未登録レースの結果を一括取得・照合", key="batch_verify_results"):
+            from official_verification import verify_official_trifecta
+            from datetime import datetime, timedelta, timezone
+            today_jst = datetime.now(timezone(timedelta(hours=9))).date()
+            successes = []
+            skipped = []
+            failed = []
+            for entry in pending[:30]:
+                key = entry["レース"]
+                try:
+                    race_day = datetime.strptime(key[:8], "%Y%m%d").date()
+                    if race_day > today_jst:
+                        skipped.append(key + "：未来のレース")
+                        continue
+                    result, source = fetch_actual_result(key)
+                    if result is None:
+                        skipped.append(key + "：結果未公開")
+                        continue
+                    verify_official_trifecta(key, result)
+                    tracking.verify(conn, key, result)
+                    successes.append(f"{key}：{result}")
+                except Exception as exc:
+                    failed.append(f"{key}：{exc}")
+            st.success(f"照合・保存成功 {len(successes)}件／未公開など {len(skipped)}件／要確認 {len(failed)}件")
+            if successes:
+                st.write("保存成功：", "、".join(successes))
+            if skipped:
+                st.write("保留：", "、".join(skipped))
+            if failed:
+                st.warning("自動登録を中止したレース：" + " ／ ".join(failed))
+            st.caption("一度に最大30レース。結果の集計表示は画面再読み込みで更新されます。")
         selected_key = st.selectbox("レース", [x["レース"] for x in pending], key="check_race")
         if st.button("公開データから結果を自動取得・照合", key="auto_actual_result"):
             try:
