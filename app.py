@@ -474,6 +474,50 @@ if st.button("過去レースを検証", key="run_backtest"):
             st.error(f"検証処理でエラー：{type(exc).__name__}: {exc}")
             st.info("処理は途中で停止しました。成績は更新していません。")
 
+st.subheader("複数日・複数場の一括検証")
+st.caption("まずは最大120レースまで。日別・場別の出走表を再利用して通信量を減らします。")
+batch_end = st.date_input("検証期間の最終日", key="batch_end")
+batch_days = st.selectbox("過去何日分を調べるか", [2, 3, 5], index=1, key="batch_days")
+batch_venues = st.multiselect("検証する開催場（最大2場）", VENUES, default=["下関"], max_selections=2, key="batch_venues")
+st.caption(f"最大 {batch_days * len(batch_venues) * 12}レース（非開催日は対象外）")
+if st.button("複数日・複数場をまとめて検証", key="run_batch_backtest"):
+    from datetime import datetime, timedelta, timezone
+    if not batch_venues:
+        st.error("開催場を1〜2場選んでください。")
+    elif batch_end >= datetime.now(timezone(timedelta(hours=9))).date():
+        st.error("最終日は昨日以前を選択してください。")
+    else:
+        try:
+            import importlib
+            import app_backtest
+            importlib.reload(app_backtest)
+            from history_data import VENUE_CODES
+            from official_verification import verify_official_trifecta
+            progress_batch = st.progress(0)
+            combinations = [(batch_end - timedelta(days=offset), place)
+                            for offset in range(batch_days - 1, -1, -1)
+                            for place in batch_venues]
+            def checked_batch_result(day, venue, race):
+                key = f"{day:%Y%m%d}-{VENUE_CODES[venue]:02d}-{race:02d}"
+                actual, source = fetch_actual_result(key)
+                if actual:
+                    verify_official_trifecta(key, actual)
+                return actual, source
+            all_rows = []
+            with st.spinner("過去レースを検証中。処理に数分かかることがあります。"):
+                for idx, (day, place) in enumerate(combinations):
+                    def advance(fraction, idx=idx):
+                        progress_batch.progress(min(100, int(100 * (idx + fraction) / len(combinations))))
+                    rows = app_backtest.backtest(day, place, 12, VENUE_COURSE_HISTORICAL,
+                                                 advance, checked_batch_result)
+                    all_rows.extend(rows)
+            st.session_state["backtest_rows"] = all_rows
+            st.session_state["backtest_meta"] = ("一括", batch_end, batch_days, tuple(batch_venues))
+            st.success(f"一括検証終了：{len(all_rows)}レースを確認。照合成功数と成績は下に表示します。")
+        except Exception as exc:
+            st.error(f"一括検証エラー：{type(exc).__name__}: {exc}")
+            st.info("途中までのデータは集計に反映していません。")
+
 bt_rows = st.session_state.get("backtest_rows")
 if bt_rows:
     st.dataframe(bt_rows,hide_index=True,use_container_width=True)
