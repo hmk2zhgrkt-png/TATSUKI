@@ -519,6 +519,44 @@ if st.button("複数日・複数場をまとめて検証", key="run_batch_backte
             st.error(f"一括検証エラー：{type(exc).__name__}: {exc}")
             st.info("途中までのデータは集計に反映していません。")
 
+st.subheader("長期検証（サンプリング版）")
+st.caption("30〜90日を対象に、各開催日の1R・6R・12Rを検証します。全レースではなく抽出検証です。処理中は画面を開いたままにしてください。")
+long_end = st.date_input("長期検証の最終日", key="long_end")
+long_days = st.selectbox("長期検証の期間", [30, 60, 90], key="long_days")
+long_venue = st.selectbox("長期検証の競艇場", VENUES, index=18, key="long_venue")
+if st.button("長期検証を開始", key="run_long_backtest"):
+    from datetime import datetime, timedelta, timezone
+    if long_end >= datetime.now(timezone(timedelta(hours=9))).date():
+        st.error("最終日は昨日以前にしてください。")
+    else:
+        try:
+            import importlib
+            import app_backtest
+            importlib.reload(app_backtest)
+            from history_data import VENUE_CODES
+            from backtest_cache import cached_result
+            from official_verification import verify_official_trifecta
+            def lookup_long(day, venue, race):
+                actual, source = cached_result(day, VENUE_CODES[venue], race)
+                if actual:
+                    verify_official_trifecta(f"{day:%Y%m%d}-{VENUE_CODES[venue]:02d}-{race:02d}", actual)
+                return actual, source
+            long_progress = st.progress(0)
+            long_rows = []
+            with st.spinner("長期検証中。通信状況により時間がかかります。"):
+                for offset in range(long_days-1, -1, -1):
+                    day = long_end - timedelta(days=offset)
+                    def tick(fraction, offset=offset):
+                        long_progress.progress(min(100, int(100 * ((long_days-1-offset)+fraction)/long_days)))
+                    long_rows.extend(app_backtest.backtest(day, long_venue, 3, VENUE_COURSE_HISTORICAL,
+                                                          tick, lookup_long, race_numbers=[1,6,12]))
+            st.session_state["backtest_rows"] = long_rows
+            st.session_state["backtest_meta"] = ("長期", long_end, long_days, long_venue)
+            st.session_state.pop("model_comparison_result", None)
+            st.success("長期検証が終了しました。照合済みレースの成績を下に表示します。")
+        except Exception as exc:
+            st.error(f"長期検証エラー：{type(exc).__name__}: {exc}")
+
 bt_rows = st.session_state.get("backtest_rows")
 if bt_rows:
     public_bt = [{k:v for k,v in r.items() if not k.startswith("_")} for r in bt_rows]
@@ -532,6 +570,21 @@ if bt_rows:
             st.write(f"{label}：旧 {sum(r['旧'+label] for r in valid_bt)/n_bt:.1%} ／ 新 {sum(r['新'+label] for r in valid_bt)/n_bt:.1%}")
         st.write(f"平均予想順位：旧 {sum(r['旧順位'] for r in valid_bt)/n_bt:.1f} ／ 新 {sum(r['新順位'] for r in valid_bt)/n_bt:.1f}")
         st.write(f"新モデルの順位改善率：{sum(r['新順位']<r['旧順位'] for r in valid_bt)/n_bt:.1%}")
+    st.subheader("期間別・競艇場別の成績")
+    if valid_bt:
+        import pandas as pd
+        summary_bt = pd.DataFrame(valid_bt).copy()
+        summary_bt["月"] = summary_bt["日付"].str.slice(0,7)
+        for field in ("月", "開催場"):
+            st.write("**" + ("月別" if field == "月" else "開催場別") + "**")
+            grouped = summary_bt.groupby(field).agg(
+                件数=("新順位","size"),
+                Top1=("新順位",lambda x: (x==1).mean()),
+                Top5=("新順位",lambda x: (x<=5).mean()),
+                Top10=("新順位",lambda x: (x<=10).mean()),
+                平均順位=("新順位","mean")).reset_index()
+            st.dataframe(grouped, hide_index=True, use_container_width=True)
+    st.caption("払戻金・購入金額のデータがないため、回収率は算出していません。")
     st.caption("少数レースの試験的な過去検証です。過去成績の定義やデータの時点は今後も確認が必要です。将来の的中率・収益を保証しません。")
     st.download_button("検証結果をCSV保存", __import__("pandas").DataFrame(public_bt).to_csv(index=False).encode("utf-8-sig"),file_name="tatsuki_backtest.csv",mime="text/csv",key="bt_csv")
 
