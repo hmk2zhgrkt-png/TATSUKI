@@ -521,7 +521,8 @@ if st.button("複数日・複数場をまとめて検証", key="run_batch_backte
 
 bt_rows = st.session_state.get("backtest_rows")
 if bt_rows:
-    st.dataframe(bt_rows,hide_index=True,use_container_width=True)
+    public_bt = [{k:v for k,v in r.items() if not k.startswith("_")} for r in bt_rows]
+    st.dataframe(public_bt,hide_index=True,use_container_width=True)
     valid_bt = [r for r in bt_rows if r.get("状態")=="照合済み"]
     st.write(f"照合成功：{len(valid_bt)} / {len(bt_rows)}レース")
     if valid_bt:
@@ -532,7 +533,27 @@ if bt_rows:
         st.write(f"平均予想順位：旧 {sum(r['旧順位'] for r in valid_bt)/n_bt:.1f} ／ 新 {sum(r['新順位'] for r in valid_bt)/n_bt:.1f}")
         st.write(f"新モデルの順位改善率：{sum(r['新順位']<r['旧順位'] for r in valid_bt)/n_bt:.1%}")
     st.caption("少数レースの試験的な過去検証です。過去成績の定義やデータの時点は今後も確認が必要です。将来の的中率・収益を保証しません。")
-    st.download_button("検証結果をCSV保存", __import__("pandas").DataFrame(bt_rows).to_csv(index=False).encode("utf-8-sig"),file_name="tatsuki_backtest.csv",mime="text/csv",key="bt_csv")
+    st.download_button("検証結果をCSV保存", __import__("pandas").DataFrame(public_bt).to_csv(index=False).encode("utf-8-sig"),file_name="tatsuki_backtest.csv",mime="text/csv",key="bt_csv")
+
+    st.subheader("🧠 予想モデルの重みを比較")
+    st.caption("異なる日付のレースを時系列で分割。古い約70%で5候補を選び、新しい約30%は最後の評価にのみ使います。")
+    if st.button("学習用・評価用に分けて比較", key="compare_model_weights"):
+        try:
+            import importlib
+            import model_comparison
+            importlib.reload(model_comparison)
+            st.session_state["model_comparison_result"] = model_comparison.compare(bt_rows,VENUE_COURSE_HISTORICAL)
+        except Exception as exc:
+            st.error(f"比較できません：{exc}")
+    comparison = st.session_state.get("model_comparison_result")
+    if comparison:
+        st.write(f"学習 {comparison['学習件数']}レース（{comparison['学習期間']}）／評価 {comparison['評価件数']}レース（{comparison['評価期間']}）")
+        st.write(f"学習データで選ばれた候補：**{comparison['選択モデル']}**")
+        st.dataframe([{"モデル":name,**stats} for name,stats in comparison["学習比較"]],hide_index=True,use_container_width=True)
+        st.write("**未使用の新しい日付で評価**")
+        st.dataframe([{"モデル":"現行モデル",**comparison["現行モデル評価"]},
+                      {"モデル":"選択候補",**comparison["選択モデル評価"]}],hide_index=True,use_container_width=True)
+        st.caption("候補を自動採用する機能ではありません。将来の的中率・収益は保証できません。長期コース統計の集計期間が検証対象日より新しい場合、厳密な過去時点の検証にはなりません。")
 
 st.divider()
 st.header("📊 3連単・検証成績")
