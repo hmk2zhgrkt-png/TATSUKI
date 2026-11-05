@@ -33,8 +33,9 @@ def rank_race(rows, venue, course_rates):
 
 def backtest(day, venue, count, course_rates, progress=None, result_lookup=None):
     from app_backtest_results import result_for_race
+    from concurrent.futures import ThreadPoolExecutor, as_completed
     records=[]
-    for race in range(1,count+1):
+    def evaluate(race):
         item={"日付":str(day),"開催場":venue,"レース":race}
         try:
             rows,_=load_race(day,venue,race)
@@ -49,7 +50,11 @@ def backtest(day, venue, count, course_rates, progress=None, result_lookup=None)
                              "旧Top10":old[actual]<=10,"新Top10":new[actual]<=10})
         except Exception as exc:
             item["状態"]=f"対象外：{str(exc)[:90]}"
-        records.append(item)
-        if progress:
-            progress((race)/count)
-    return records
+        return race, item
+    with ThreadPoolExecutor(max_workers=4) as executor:
+        futures = [executor.submit(evaluate, race) for race in range(1, count+1)]
+        for finished, future in enumerate(as_completed(futures), 1):
+            records.append(future.result())
+            if progress:
+                progress(finished / count)
+    return [item for race, item in sorted(records)]
