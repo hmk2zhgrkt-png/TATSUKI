@@ -45,14 +45,16 @@ def backtest(day, venue, count, course_rates, progress=None, result_lookup=None,
             old,new=rank_race(rows,venue,course_rates)
             actual,source=(result_lookup(day,venue,race) if result_lookup else result_for_race(day,venue,race))
             if not actual:
-                item["状態"]="結果未公開"
+                item["状態"]="結果CSVに該当レースなし"
             else:
                 item.update({"状態":"照合済み","実際の3連単":actual,"_入力データ":rows,
                              "旧順位":old[actual],"新順位":new[actual],
                              "旧Top5":old[actual]<=5,"新Top5":new[actual]<=5,
                              "旧Top10":old[actual]<=10,"新Top10":new[actual]<=10})
+        except LookupError as exc:
+            item["状態"]="出走表なし（非開催・データ欠落の可能性）"
         except Exception as exc:
-            item["状態"]=f"対象外：{str(exc)[:90]}"
+            item["状態"]=f"照合・取得エラー：{str(exc)[:90]}"
         return race, item
     with ThreadPoolExecutor(max_workers=4) as executor:
         futures = [executor.submit(evaluate, race) for race in numbers]
