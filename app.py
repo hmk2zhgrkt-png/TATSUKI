@@ -541,15 +541,32 @@ if st.button("長期検証を開始", key="run_long_backtest"):
                 if actual:
                     verify_official_trifecta(f"{day:%Y%m%d}-{VENUE_CODES[venue]:02d}-{race:02d}", actual)
                 return actual, source
+            from concurrent.futures import ThreadPoolExecutor, as_completed
             long_progress = st.progress(0)
             long_rows = []
-            with st.spinner("長期検証中。通信状況により時間がかかります。"):
-                for offset in range(long_days-1, -1, -1):
-                    day = long_end - timedelta(days=offset)
-                    def tick(fraction, offset=offset):
-                        long_progress.progress(min(100, int(100 * ((long_days-1-offset)+fraction)/long_days)))
-                    long_rows.extend(app_backtest.backtest(day, long_venue, 3, VENUE_COURSE_HISTORICAL,
-                                                          tick, lookup_long, race_numbers=[1,6,12]))
+            dates = [long_end - timedelta(days=offset) for offset in range(long_days-1,-1,-1)]
+            def evaluate_day(day):
+                from history_data import _day_rows
+                try:
+                    cards, _ = _day_rows("race_cards", day)
+                    prefix = f"{day:%Y%m%d}{VENUE_CODES[long_venue]:02d}"
+                    numbers = [race for race in (1, 6, 12) if f"{prefix}{race:02d}" in cards]
+                    if not numbers:
+                        return [{"日付":str(day),"開催場":long_venue,"レース":"—",
+                                 "状態":"出走表なし（非開催・データ欠落の可能性）"}]
+                    return app_backtest.backtest(day, long_venue, len(numbers),
+                                                 VENUE_COURSE_HISTORICAL,
+                                                 result_lookup=lookup_long, race_numbers=numbers)
+                except Exception as exc:
+                    return [{"日付":str(day),"開催場":long_venue,"レース":"—",
+                             "状態":f"日別データ取得エラー：{str(exc)[:90]}"}]
+            with st.spinner("長期検証中。日付ごとに最大4件を並列処理します。"):
+                with ThreadPoolExecutor(max_workers=4) as pool:
+                    futures = {pool.submit(evaluate_day, day):day for day in dates}
+                    for completed, future in enumerate(as_completed(futures),1):
+                        long_rows.extend(future.result())
+                        long_progress.progress(int(100 * completed / len(dates)))
+            long_rows.sort(key=lambda r:(r["日付"],str(r["レース"])))
             st.session_state["backtest_rows"] = long_rows
             st.session_state["backtest_meta"] = ("長期", long_end, long_days, long_venue)
             st.session_state.pop("model_comparison_result", None)
