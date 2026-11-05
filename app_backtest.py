@@ -31,9 +31,12 @@ def rank_race(rows, venue, course_rates):
         return {name:i for i,(name,_) in enumerate(values,1)}
     return ranks(base),ranks(adjusted)
 
-def backtest(day, venue, count, course_rates, progress=None, result_lookup=None):
+def backtest(day, venue, count, course_rates, progress=None, result_lookup=None, race_numbers=None):
     from app_backtest_results import result_for_race
     from concurrent.futures import ThreadPoolExecutor, as_completed
+    numbers = list(race_numbers) if race_numbers is not None else list(range(1,count+1))
+    if not numbers or any(not 1 <= n <= 12 for n in numbers):
+        raise ValueError("検証レース番号が不正です")
     records=[]
     def evaluate(race):
         item={"日付":str(day),"開催場":venue,"レース":race}
@@ -52,9 +55,9 @@ def backtest(day, venue, count, course_rates, progress=None, result_lookup=None)
             item["状態"]=f"対象外：{str(exc)[:90]}"
         return race, item
     with ThreadPoolExecutor(max_workers=4) as executor:
-        futures = [executor.submit(evaluate, race) for race in range(1, count+1)]
+        futures = [executor.submit(evaluate, race) for race in numbers]
         for finished, future in enumerate(as_completed(futures), 1):
             records.append(future.result())
             if progress:
-                progress(finished / count)
+                progress(finished / len(numbers))
     return [item for race, item in sorted(records)]
