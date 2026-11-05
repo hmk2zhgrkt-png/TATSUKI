@@ -537,10 +537,16 @@ if st.button("長期検証を開始", key="run_long_backtest"):
             from backtest_cache import cached_result
             from official_verification import verify_official_trifecta
             def lookup_long(day, venue, race):
+                from official_verification import official_trifecta
+                key = f"{day:%Y%m%d}-{VENUE_CODES[venue]:02d}-{race:02d}"
                 actual, source = cached_result(day, VENUE_CODES[venue], race)
                 if actual:
-                    verify_official_trifecta(f"{day:%Y%m%d}-{VENUE_CODES[venue]:02d}-{race:02d}", actual)
-                return actual, source
+                    verify_official_trifecta(key, actual)
+                    return actual, source
+                try:
+                    return official_trifecta(key)
+                except (ValueError, OSError) as exc:
+                    raise LookupError(f"結果CSVなし・公式結果も未確認：{str(exc)[:70]}") from exc
             from concurrent.futures import ThreadPoolExecutor, as_completed
             long_progress = st.progress(0)
             long_rows = []
