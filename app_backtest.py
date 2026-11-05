@@ -44,7 +44,7 @@ def backtest(day, venue, count, course_rates, progress=None, result_lookup=None)
             if not actual:
                 item["状態"]="結果未公開"
             else:
-                item.update({"状態":"照合済み","実際の3連単":actual,
+                item.update({"状態":"照合済み","実際の3連単":actual,"_入力データ":rows,
                              "旧順位":old[actual],"新順位":new[actual],
                              "旧Top5":old[actual]<=5,"新Top5":new[actual]<=5,
                              "旧Top10":old[actual]<=10,"新Top10":new[actual]<=10})
