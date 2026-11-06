@@ -10,6 +10,7 @@ from pathlib import Path
 import streamlit as st
 from history_data import load_race
 import trifecta_tracking as tracking
+from durable_storage import open_database, RemoteStorageError
 
 DB = Path(__file__).with_name("predictions.db")
 VENUES = ["桐生","戸田","江戸川","平和島","多摩川","浜名湖","蒲郡","常滑","津","三国","びわこ","住之江","尼崎","鳴門","丸亀","児島","宮島","徳山","下関","若松","芦屋","福岡","唐津","大村"]
@@ -22,7 +23,8 @@ VENUE_STATS_SOURCE = "https://boatrace-db.jp/stadium/acourse/"
 FIELDS = ["race_id", "boat", "win_rate", "avg_st", "motor_rate", "exhibition_time", "odds"]
 
 def database():
-    conn = sqlite3.connect(DB)
+    conn, persistent = open_database(DB, st.secrets)
+    st.session_state["supabase_persistent"] = persistent
     conn.execute("""CREATE TABLE IF NOT EXISTS picks (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         created_at TEXT NOT NULL,
@@ -124,8 +126,16 @@ st.title("🚤 競艇AI分析 TATSUKI")
 st.caption("試作版｜実データの自動取得なし・予測精度は未検証・自動投票なし")
 st.warning("表示する確率は簡易計算による参考値で、実際の的中確率ではありません。利益を保証しません。")
 tab4, tab1, tab2, tab3 = st.tabs(["3連単予想（試作）", "旧CSV分析", "旧結果記録", "旧成績"])
-conn = database()
-tracking.setup(conn)
+try:
+    conn = database()
+    tracking.setup(conn)
+except RemoteStorageError as exc:
+    st.error(str(exc))
+    st.stop()
+if st.session_state.get("supabase_persistent"):
+    st.success("☁️ Supabase永続保存に接続済み（再デプロイ後もデータを復元）")
+else:
+    st.warning("⚠️ Supabase未接続：保存データは再デプロイで消える可能性があります。")
 
 with tab1:
     st.subheader("レース条件")
@@ -800,7 +810,7 @@ if st.button("出走表を取得して日時付きで保存", key="capture_race_
 saved_snapshots = snapshots.list_snapshots(conn)
 if saved_snapshots:
     st.dataframe(saved_snapshots,hide_index=True,use_container_width=True)
-st.warning("Streamlitのローカル保存は再起動・再デプロイで消える場合があります。下のJSONをダウンロードして保管してください。")
+st.info("Supabase接続中は保存・検証記録を自動同期します。JSONの手動バックアップも予備としておすすめです。" if st.session_state.get("supabase_persistent") else "ローカル保存は再起動・再デプロイで消える場合があります。JSONでバックアップしてください。")
 st.download_button("時点保存データをJSONでバックアップ",
                    snapshots.export_json(conn).encode("utf-8"),
                    file_name="tatsuki_race_snapshots.json",mime="application/json",
