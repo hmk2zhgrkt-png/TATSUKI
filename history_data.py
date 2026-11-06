@@ -81,9 +81,9 @@ def _fetch_boatcast_tsv(url):
     if not body.lstrip().startswith("data="):
         return None
     lines = body.splitlines()
-    if len(lines) < 8 or lines[1].split("\\t")[0].strip() != "1":
+    if len(lines) < 8 or lines[1].split("\t")[0].strip() != "1":
         return None
-    return [line.split("\\t") for line in lines[2:8]]
+    return [line.split("\t") for line in lines[2:8]]
 
 
 def _load_live_race(day, venue, race_number):
