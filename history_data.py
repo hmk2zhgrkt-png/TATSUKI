@@ -26,7 +26,12 @@ def load_race(day, venue, race_number):
     if not isinstance(day, date) or venue not in VENUE_CODES or not 1 <= race_number <= 12:
         raise ValueError("開催日・競艇場・レース番号を確認してください")
     code = f"{day:%Y%m%d}{VENUE_CODES[venue]:02d}{race_number:02d}"
-    cards, cards_url = _get_row("race_cards", day, code)
+    try:
+        cards, cards_url = _get_row("race_cards", day, code)
+    except HTTPError as exc:
+        if exc.code == 404:
+            raise LookupError(f"{day:%Y/%m/%d}の出走表CSVが取得先にありません（HTTP 404）。公開前・未収録・取得先の問題のいずれかです。現在の取得元では保存できません。") from exc
+        raise
     if cards is None:
         raise LookupError("この日の出走表データが見つかりません。データの公開待ち、または非開催の可能性があります。")
     try:
