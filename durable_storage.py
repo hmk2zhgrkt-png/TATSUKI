@@ -1,0 +1,77 @@
+"""Durable SQLite backup in a private Supabase row; never put credentials in Git."""
+import base64
+import json
+import sqlite3
+import urllib.error
+import urllib.parse
+import urllib.request
+
+ROW_ID = "tatsuki_main_database"
+
+class RemoteStorageError(RuntimeError):
+    pass
+
+def _request(url, key, method="GET", payload=None):
+    headers = {"apikey": key, "Authorization": "Bearer " + key,
+               "Accept": "application/json"}
+    if payload is not None:
+        headers["Content-Type"] = "application/json"
+        headers["Prefer"] = "resolution=merge-duplicates,return=minimal"
+    req = urllib.request.Request(
+        url, data=json.dumps(payload).encode("utf-8") if payload is not None else None,
+        headers=headers, method=method)
+    try:
+        with urllib.request.urlopen(req, timeout=20) as resp:
+            return json.loads(resp.read().decode("utf-8")) if method == "GET" else None
+    except (urllib.error.URLError, ValueError, TimeoutError) as exc:
+        raise RemoteStorageError("Supabaseとの通信に失敗しました。保存データ保護のため操作を停止します。") from exc
+
+class DurableConnection(sqlite3.Connection):
+    remote_url = None
+    remote_key = None
+    sync_enabled = False
+
+    def commit(self):
+        super().commit()
+        if self.sync_enabled:
+            self.sync_remote()
+
+    def sync_remote(self):
+        if not self.remote_url or not self.remote_key:
+            return
+        blob = base64.b64encode(self.serialize()).decode("ascii")
+        _request(self.remote_url, self.remote_key, "POST",
+                 [{"id": ROW_ID, "data": {"format": "sqlite-base64-v1", "blob": blob}}])
+
+def open_database(path, secrets):
+    """Restore Supabase snapshot before app tables are initialized; fail closed on errors."""
+    url = secrets.get("SUPABASE_URL", "").strip()
+    key = secrets.get("SUPABASE_SERVICE_ROLE_KEY", "").strip()
+    if bool(url) != bool(key):
+        raise RemoteStorageError("SupabaseのURLと秘密鍵の両方をSecretsに設定してください。")
+    if url and (not url.startswith("https://") or not key.startswith(("sb_secret_", "eyJ"))):
+        raise RemoteStorageError("Supabaseの接続設定を確認してください。")
+    conn = sqlite3.connect(":memory:" if url else str(path), factory=DurableConnection)
+    if not url:
+        return conn, False
+    endpoint = url.rstrip("/") + "/rest/v1/tatsuki_storage"
+    query = endpoint + "?id=eq." + urllib.parse.quote(ROW_ID) + "&select=data"
+    rows = _request(query, key)
+    if not isinstance(rows, list):
+        raise RemoteStorageError("Supabaseから予期しない応答が返りました。")
+    if rows:
+        try:
+            data = rows[0]["data"]
+            if data["format"] != "sqlite-base64-v1":
+                raise ValueError("unsupported backup")
+            conn.deserialize(base64.b64decode(data["blob"], validate=True))
+        except (KeyError, ValueError, TypeError, sqlite3.DatabaseError) as exc:
+            raise RemoteStorageError("保存済みデータを読み込めません。上書きせず停止します。") from exc
+    conn.remote_url = endpoint
+    conn.remote_key = key
+    conn.sync_enabled = True
+    # When remote is empty, create the initial snapshot. Subsequent schema changes
+    # and user actions are automatically synchronized on commit.
+    if not rows:
+        conn.sync_remote()
+    return conn, True
