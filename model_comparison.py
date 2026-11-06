@@ -44,7 +44,10 @@ def compare(records,rates):
     train=[r for r in valid if r["日付"] in set(dates[:split])]
     test=[r for r in valid if r["日付"] in set(dates[split:])]
     def stats(rows,weights):
-        ranks=[predict(r["_入力データ"],r["開催場"],rates,weights)[r["実際の3連単"]] for r in rows]
+        # Match historical backtest: no future-dated course statistics.
+        def race_rates(r):
+            return {v:[50.0]*6 for v in rates} if r["日付"] <= "2026-10-31" else rates
+        ranks=[predict(r["_入力データ"],r["開催場"],race_rates(r),weights)[r["実際の3連単"]] for r in rows]
         return {"Top1":sum(x==1 for x in ranks)/len(ranks),
                 "Top5":sum(x<=5 for x in ranks)/len(ranks),
                 "Top10":sum(x<=10 for x in ranks)/len(ranks),
