@@ -27,8 +27,12 @@ def _request(url, key, method="GET", payload=None):
             return json.loads(resp.read().decode("utf-8")) if method == "GET" else None
     except urllib.error.HTTPError as exc:
         raise RemoteStorageError(f"Supabase HTTP {exc.code}：接続先・秘密鍵・テーブル権限を確認してください。データは上書きしません。") from exc
-    except (urllib.error.URLError, ValueError, TimeoutError) as exc:
-        raise RemoteStorageError("Supabaseとの通信に失敗しました。保存データ保護のため操作を停止します。") from exc
+    except urllib.error.URLError as exc:
+        reason = getattr(exc, "reason", None)
+        detail = type(reason).__name__ if reason is not None else type(exc).__name__
+        raise RemoteStorageError(f"Supabase接続エラー（{detail}）。URL・ネットワーク・秘密鍵の設定を確認してください。データは上書きしません。") from exc
+    except (ValueError, TimeoutError) as exc:
+        raise RemoteStorageError(f"Supabase通信エラー（{type(exc).__name__}）。データは上書きしません。") from exc
 
 class DurableConnection(sqlite3.Connection):
     remote_url = None
