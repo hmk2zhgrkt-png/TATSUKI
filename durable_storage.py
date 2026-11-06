@@ -12,8 +12,10 @@ class RemoteStorageError(RuntimeError):
     pass
 
 def _request(url, key, method="GET", payload=None):
-    headers = {"apikey": key, "Authorization": "Bearer " + key,
-               "Accept": "application/json"}
+    headers = {"apikey": key, "Accept": "application/json"}
+    # New sb_secret_ keys are API keys, not JWT bearer tokens.
+    if not key.startswith("sb_secret_"):
+        headers["Authorization"] = "Bearer " + key
     if payload is not None:
         headers["Content-Type"] = "application/json"
         headers["Prefer"] = "resolution=merge-duplicates,return=minimal"
@@ -23,6 +25,8 @@ def _request(url, key, method="GET", payload=None):
     try:
         with urllib.request.urlopen(req, timeout=20) as resp:
             return json.loads(resp.read().decode("utf-8")) if method == "GET" else None
+    except urllib.error.HTTPError as exc:
+        raise RemoteStorageError(f"Supabase HTTP {exc.code}：接続先・秘密鍵・テーブル権限を確認してください。データは上書きしません。") from exc
     except (urllib.error.URLError, ValueError, TimeoutError) as exc:
         raise RemoteStorageError("Supabaseとの通信に失敗しました。保存データ保護のため操作を停止します。") from exc
 
