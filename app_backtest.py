@@ -1,4 +1,4 @@
-"""Historical race backtest using only pre-race race-card and same-frame history fields."""
+"""Historical race backtest with unverified time-dependent features excluded."""
 import itertools
 from datetime import timedelta
 from history_data import load_race
@@ -37,11 +37,8 @@ def backtest(day, venue, count, course_rates, progress=None, result_lookup=None,
     numbers = list(race_numbers) if race_numbers is not None else list(range(1,count+1))
     if not numbers or any(not 1 <= n <= 12 for n in numbers):
         raise ValueError("検証レース番号が不正です")
-    # Prevent future-dated venue statistics from entering historical evaluations.
-    # The supplied venue rates include results through 2026-10-31.
-    from datetime import date
-    if True:
-        course_rates = {v:[50.0]*6 for v in course_rates}
+    # Historical course rates have no validated as-of snapshot for each race date.
+    course_rates = {v:[50.0]*6 for v in course_rates}
     records=[]
     def evaluate(race):
         item={"日付":str(day),"開催場":venue,"レース":race}
