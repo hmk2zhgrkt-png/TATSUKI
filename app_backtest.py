@@ -43,7 +43,10 @@ def backtest(day, venue, count, course_rates, progress=None, result_lookup=None,
         try:
             rows,_=load_race(day,venue,race)
             old,new=rank_race(rows,venue,course_rates)
-            actual,source=(result_lookup(day,venue,race) if result_lookup else result_for_race(day,venue,race))
+            outcome=(result_lookup(day,venue,race) if result_lookup else result_for_race(day,venue,race))
+            actual, source = outcome[:2]
+            if len(outcome) > 2:
+                item["照合元"] = outcome[2]
             if not actual:
                 item["状態"]="結果CSVに該当レースなし"
             else:
