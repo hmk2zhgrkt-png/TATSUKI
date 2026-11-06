@@ -519,11 +519,12 @@ if st.button("複数日・複数場をまとめて検証", key="run_batch_backte
             st.error(f"一括検証エラー：{type(exc).__name__}: {exc}")
             st.info("途中までのデータは集計に反映していません。")
 
-st.subheader("長期検証（サンプリング版）")
-st.caption("30〜90日を対象に、各開催日の1R・6R・12Rを検証します。全レースではなく抽出検証です。処理中は画面を開いたままにしてください。")
+st.subheader("長期検証")
+st.caption("30〜90日を対象に全12Rまたは抽出3Rを検証します。全12Rは通信量が増えます。処理中は画面を開いたままにしてください。")
 long_end = st.date_input("長期検証の最終日", key="long_end")
 long_days = st.selectbox("長期検証の期間", [30, 60, 90], key="long_days")
 long_venue = st.selectbox("長期検証の競艇場", VENUES, index=18, key="long_venue")
+long_scope = st.radio("検証レース", ["1R・6R・12R（高速）", "全12レース"], horizontal=True, key="long_scope")
 if st.button("長期検証を開始", key="run_long_backtest"):
     from datetime import datetime, timedelta, timezone
     if long_end >= datetime.now(timezone(timedelta(hours=9))).date():
@@ -558,7 +559,8 @@ if st.button("長期検証を開始", key="run_long_backtest"):
                 try:
                     cards, _ = _day_rows("race_cards", day)
                     prefix = f"{day:%Y%m%d}{VENUE_CODES[long_venue]:02d}"
-                    numbers = [race for race in (1, 6, 12) if f"{prefix}{race:02d}" in cards]
+                    selected = range(1, 13) if long_scope == "全12レース" else (1, 6, 12)
+                    numbers = [race for race in selected if f"{prefix}{race:02d}" in cards]
                     if not numbers:
                         return [{"日付":str(day),"開催場":long_venue,"レース":"—",
                                  "状態":"出走表なし（非開催・データ欠落の可能性）"}]
@@ -576,7 +578,7 @@ if st.button("長期検証を開始", key="run_long_backtest"):
                         long_progress.progress(int(100 * completed / len(dates)))
             long_rows.sort(key=lambda r:(r["日付"],str(r["レース"])))
             st.session_state["backtest_rows"] = long_rows
-            st.session_state["backtest_meta"] = ("長期", long_end, long_days, long_venue)
+            st.session_state["backtest_meta"] = ("長期", long_end, long_days, long_venue, long_scope)
             st.session_state.pop("model_comparison_result", None)
             st.success("長期検証が終了しました。照合済みレースの成績を下に表示します。")
         except Exception as exc:
@@ -605,6 +607,41 @@ if bt_rows:
             st.write(f"{label}：旧 {sum(r['旧'+label] for r in valid_bt)/n_bt:.1%} ／ 新 {sum(r['新'+label] for r in valid_bt)/n_bt:.1%}")
         st.write(f"平均予想順位：旧 {sum(r['旧順位'] for r in valid_bt)/n_bt:.1f} ／ 新 {sum(r['新順位'] for r in valid_bt)/n_bt:.1f}")
         st.write(f"新モデルの順位改善率：{sum(r['新順位']<r['旧順位'] for r in valid_bt)/n_bt:.1%}")
+    if valid_bt:
+        st.subheader("払戻金・回収率シミュレーション")
+        st.caption("予想上位1・5・10点を各100円ずつ購入した仮定。払戻金は100円当たり。払戻データが確認できたレースのみ集計し、未取得分は除外します。")
+        from datetime import date as _bt_date
+        from backtest_cache import daily_results
+        from payout_cache import trifecta_payout
+        from history_data import VENUE_CODES as _bt_codes
+        from concurrent.futures import ThreadPoolExecutor as _PayoutPool
+        def _payout_one(r):
+            day = _bt_date.fromisoformat(r["日付"])
+            amount, _ = trifecta_payout(day, _bt_codes[r["開催場"]], int(r["レース"]), r["実際の3連単"])
+            return amount
+        if st.button("払戻金を取得して回収率を計算", key="calc_backtest_roi"):
+            with st.spinner("払戻金を照合しています"):
+                with _PayoutPool(max_workers=6) as pool:
+                    payouts = list(pool.map(_payout_one, valid_bt))
+            st.session_state["bt_roi"] = {"meta":st.session_state.get("backtest_meta"), "keys":[(r["日付"],r["開催場"],r["レース"],r["実際の3連単"]) for r in valid_bt], "payouts":payouts}
+        roi_cache = st.session_state.get("bt_roi")
+        keys_now = [(r["日付"],r["開催場"],r["レース"],r["実際の3連単"]) for r in valid_bt]
+        if roi_cache and roi_cache["keys"] == keys_now:
+            paid = [(r,v) for r,v in zip(valid_bt,roi_cache["payouts"]) if v is not None]
+            st.write(f"払戻金確認済み：{len(paid)} / {len(valid_bt)}レース")
+            if paid:
+                roi_rows=[]
+                for model in ("旧","新"):
+                    for picks in (1,5,10):
+                        stake = len(paid)*picks*100
+                        returns = sum(value for r,value in paid if r[model+"順位"]<=picks)
+                        roi_rows.append({"モデル":model,"購入点数":picks,"購入額（円）":stake,
+                                         "払戻額（円）":returns,"損益（円）":returns-stake,
+                                         "回収率（%）":round(100*returns/stake,1)})
+                st.dataframe(roi_rows,hide_index=True,use_container_width=True)
+                st.caption("これは過去レースの事後検証です。データの時点や選択バイアスが未検証で、将来の収益性を示しません。")
+            if len(paid)<len(valid_bt):
+                st.warning("払戻データが欠けたレースを除外しています。全レースの回収率ではありません。")
     st.subheader("期間別・競艇場別の成績")
     if valid_bt:
         import pandas as pd
@@ -619,7 +656,7 @@ if bt_rows:
                 Top10=("新順位",lambda x: (x<=10).mean()),
                 平均順位=("新順位","mean")).reset_index()
             st.dataframe(grouped, hide_index=True, use_container_width=True)
-    st.caption("払戻金・購入金額のデータがないため、回収率は算出していません。")
+
     st.caption("少数レースの試験的な過去検証です。過去成績の定義やデータの時点は今後も確認が必要です。将来の的中率・収益を保証しません。")
     st.download_button("検証結果をCSV保存", __import__("pandas").DataFrame(public_bt).to_csv(index=False).encode("utf-8-sig"),file_name="tatsuki_backtest.csv",mime="text/csv",key="bt_csv")
 
