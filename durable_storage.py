@@ -26,7 +26,25 @@ def _request(url, key, method="GET", payload=None):
         with urllib.request.urlopen(req, timeout=20) as resp:
             return json.loads(resp.read().decode("utf-8")) if method == "GET" else None
     except urllib.error.HTTPError as exc:
-        raise RemoteStorageError(f"Supabase HTTP {exc.code}：接続先・秘密鍵・テーブル権限を確認してください。データは上書きしません。") from exc
+        # Show only allowlisted diagnostic fields; never print URLs, headers, keys,
+        # arbitrary server messages, or request bodies.
+        error_code = "unknown"
+        try:
+            error_data = json.loads(exc.read(4096).decode("utf-8"))
+            candidate = error_data.get("code", "")
+            if isinstance(candidate, str) and candidate in {
+                "PGRST301", "PGRST302", "PGRST116", "42501",
+                "42P01", "PGRST205", "PGRST202",
+            }:
+                error_code = candidate
+        except (ValueError, UnicodeDecodeError, AttributeError):
+            pass
+        request_stage = "読込（GET）" if method == "GET" else "保存（POST）"
+        raise RemoteStorageError(
+            f"Supabase接続診断：{request_stage}でHTTP {exc.code} "
+            f"（エラー分類：{error_code}）。"
+            "鍵や個人情報は表示していません。データは上書きしません。"
+        ) from exc
     except urllib.error.URLError as exc:
         reason = getattr(exc, "reason", None)
         detail = type(reason).__name__ if reason is not None else type(exc).__name__
