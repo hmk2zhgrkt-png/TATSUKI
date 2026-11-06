@@ -815,4 +815,60 @@ with st.expander("時点保存データをJSONから復元"):
             st.error(f"復元できませんでした：{exc}")
 st.caption("保存日時はアプリサーバーで取得します。公開元の元データ作成時刻は保証されません。保存済みの過去10走は、後日のバックテストには自動投入しません。")
 
+st.subheader("保存済みレースの予想と結果照合")
+import json as snapshot_json
+from datetime import date as snapshot_date, timedelta as snapshot_delta
+from history_data import VENUE_CODES as snapshot_codes
+from app_backtest import rank_race as snapshot_rank
+from backtest_cache import cached_result as snapshot_result
+snapshot_records = conn.execute("SELECT race_key,race_date,venue,race_no,rows_json,timing FROM race_snapshots ORDER BY captured_at DESC").fetchall()
+if snapshot_records:
+    chosen = st.selectbox("保存済みレース", range(len(snapshot_records)), format_func=lambda i: snapshot_records[i][0], key="snapshot_choice")
+    snap = snapshot_records[chosen]
+    snap_day = snapshot_date.fromisoformat(snap[1])
+    snap_key = f"{snap_day:%Y%m%d}-{snapshot_codes[snap[2]]:02d}-{int(snap[3]):02d}"
+    existing = conn.execute("SELECT actual FROM trifecta_checks WHERE race_key=?", (snap_key,)).fetchone()
+    if existing is None and st.button("保存データから予想を確定", key="snapshot_predict"):
+        try:
+            old, new = snapshot_rank(snapshot_json.loads(snap[4]), snap[2], {snap[2]: [50.0]*6})
+            category = tracking.save(conn, snap_key, snap_day, old, new)
+            st.success(f"120通りの予想を保存しました：{category}")
+        except Exception as exc:
+            st.error(f"予想の保存に失敗：{exc}")
+    if existing is not None and existing[0] is None and st.button("終了したレースの結果を照合", key="snapshot_check"):
+        try:
+            today = datetime.now(timezone(snapshot_delta(hours=9))).date()
+            if snap_day >= today:
+                st.warning("当日レースは終了時刻を確認できないため、翌日以降に照合してください。")
+            else:
+                result, source = snapshot_result(snap_day, snapshot_codes[snap[2]], int(snap[3]))
+                if result is None:
+                    st.warning("結果データがまだありません。")
+                else:
+                    tracking.verify(conn, snap_key, result)
+                    st.success(f"結果 {result} を登録しました。")
+        except Exception as exc:
+            st.error(f"照合できませんでした：{exc}")
+    checked = {r["レース"]: r for r in tracking.report(conn)}
+    matched = []
+    for record in snapshot_records:
+        day = snapshot_date.fromisoformat(record[1])
+        key = f"{day:%Y%m%d}-{snapshot_codes[record[2]]:02d}-{int(record[3]):02d}"
+        item = checked.get(key)
+        if item and item["新順位"] is not None:
+            matched.append({"日付":record[1], "開催場":record[2], "R":record[3], "保存区分":record[5],
+                            "結果":item["実際の着順"], "予想順位":item["新順位"],
+                            "Top1":item["新順位"] == 1, "Top5":item["新Top5"], "Top10":item["新Top10"]})
+    st.write(f"保存済み {len(snapshot_records)}件 ／ 照合済み {len(matched)}件")
+    if matched:
+        st.dataframe(matched, hide_index=True, use_container_width=True)
+        earlier = [r for r in matched if r["保存区分"] == "前日以前"]
+        if earlier:
+            st.write(f"前日以前の保存分：{len(earlier)}件")
+            for label in ("Top1","Top5","Top10"):
+                st.write(f"{label}：{sum(bool(r[label]) for r in earlier)/len(earlier):.1%}")
+else:
+    st.info("まずレース前データを保存してください。")
+
+
 conn.close()
