@@ -26,14 +26,16 @@ def load_race(day, venue, race_number):
     if not isinstance(day, date) or venue not in VENUE_CODES or not 1 <= race_number <= 12:
         raise ValueError("開催日・競艇場・レース番号を確認してください")
     code = f"{day:%Y%m%d}{VENUE_CODES[venue]:02d}{race_number:02d}"
+    # The daily CSV is generated retrospectively. For upcoming races, use
+    # the same original boatcast per-race TSV directly instead of waiting.
     try:
         cards, cards_url = _get_row("race_cards", day, code)
     except HTTPError as exc:
-        if exc.code == 404:
-            raise LookupError(f"{day:%Y/%m/%d}の出走表CSVが取得先にありません（HTTP 404）。公開前・未収録・取得先の問題のいずれかです。現在の取得元では保存できません。") from exc
-        raise
+        if exc.code != 404:
+            raise
+        cards, cards_url = None, None
     if cards is None:
-        raise LookupError("この日の出走表データが見つかりません。データの公開待ち、または非開催の可能性があります。")
+        return _load_live_race(day, venue, race_number)
     try:
         waku, waku_url = _get_row("waku10", day, code)
     except (HTTPError, URLError, TimeoutError):
@@ -66,6 +68,62 @@ def load_race(day, venue, race_number):
             "過去10走": " ".join(history) if history else "未取得",
         })
     return result, [u for u in (cards_url,waku_url) if u]
+
+def _fetch_boatcast_tsv(url):
+    req = Request(url, headers={"User-Agent": "Mozilla/5.0 (compatible; TATSUKI/1.0)"})
+    try:
+        with urlopen(req, timeout=12) as response:
+            body = response.read().decode("utf-8-sig")
+    except HTTPError as exc:
+        if exc.code in (403, 404):
+            return None
+        raise
+    if not body.lstrip().startswith("data="):
+        return None
+    lines = body.splitlines()
+    if len(lines) < 8 or lines[1].split("\\t")[0].strip() != "1":
+        return None
+    return [line.split("\\t") for line in lines[2:8]]
+
+
+def _load_live_race(day, venue, race_number):
+    jo = VENUE_CODES[venue]
+    prefix = f"https://race.boatcast.jp/hp_txt/{jo:02d}/"
+    suffix = f"{day:%Y%m%d}_{jo:02d}_{race_number:02d}.txt"
+    card_url = prefix + "bc_j_str3_" + suffix
+    waku_url = prefix + "bc_j_waku10_" + suffix
+    boats = _fetch_boatcast_tsv(card_url)
+    if not boats or len(boats) != 6 or any(len(b) < 25 for b in boats):
+        raise LookupError("公開CSVにも元の出走表にも6艇のデータがありません。公開前・非開催・取得元のアクセス制限が考えられます。")
+    try:
+        waku = _fetch_boatcast_tsv(waku_url)
+    except (HTTPError, URLError, TimeoutError):
+        waku = None
+    def num(value):
+        try:
+            return float(value.strip()) if value.strip() not in ("", "-") else None
+        except (ValueError, AttributeError):
+            return None
+    rows = []
+    for i, b in enumerate(boats):
+        w = waku[i] if waku and len(waku) == 6 and len(waku[i]) >= 4 else None
+        history = []
+        if w:
+            for j in range(10):
+                pos = 4 + j * 3
+                if pos < len(w) and w[pos].strip():
+                    history.append(w[pos].strip().translate(str.maketrans("１２３４５６", "123456")))
+        rows.append({
+            "号艇": i + 1, "選手": b[1].replace("　", "").strip(),
+            "登録番号": b[0].strip(), "全国勝率": num(b[10]),
+            "当地勝率": num(b[13]), "平均ST": num(b[9]),
+            "モーター2連対率": num(b[18]), "モーター3連対率": num(b[19]),
+            "枠番別勝率": num(w[1]) if w else None,
+            "枠番別平均ST": num(w[2]) if w else None,
+            "過去10走": " ".join(history) if history else "未取得",
+        })
+    return rows, [card_url] + ([waku_url] if waku else [])
+
 
 def fetch_actual_result(race_key):
     """Return confirmed 3-ren-tan finish or None if the public snapshot is not yet present."""
