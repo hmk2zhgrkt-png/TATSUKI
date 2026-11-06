@@ -541,16 +541,9 @@ if st.button("長期検証を開始", key="run_long_backtest"):
                 key = f"{day:%Y%m%d}-{VENUE_CODES[venue]:02d}-{race:02d}"
                 actual, source = cached_result(day, VENUE_CODES[venue], race)
                 if actual:
-                    # Daily CSV is an independent source. Official site may block automated access.
-                    try:
-                        verify_official_trifecta(key, actual)
-                        return actual, source, "CSV・公式一致"
-                    except ValueError as exc:
-                        if "結果不一致" in str(exc):
-                            raise
-                        return actual, source, "CSVのみ（公式未確認）"
-                    except (OSError, TimeoutError):
-                        return actual, source, "CSVのみ（公式アクセス不可）"
+                    # Keep CSV-based historical verification available independently.
+                    # Official lookup is a fallback only for missing CSV entries.
+                    return actual, source, "結果CSV"
                 try:
                     finish, official_url = official_trifecta(key)
                     return finish, official_url, "公式のみ"
