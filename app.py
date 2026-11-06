@@ -588,6 +588,16 @@ if bt_rows:
     st.dataframe(public_bt,hide_index=True,use_container_width=True)
     valid_bt = [r for r in bt_rows if r.get("状態")=="照合済み"]
     st.write(f"照合成功：{len(valid_bt)} / {len(bt_rows)}レース")
+    errors_bt = [r for r in bt_rows if r.get("状態") != "照合済み"]
+    if errors_bt:
+        with st.expander(f"検証できなかった理由を確認（{len(errors_bt)}件）"):
+            from collections import Counter
+            reasons = Counter(str(r.get("状態", "不明")) for r in errors_bt)
+            for reason, count in reasons.most_common(12):
+                st.write(f"{count}件：{reason}")
+            st.caption("以下はエラー全文を確認するための表示です。")
+            st.dataframe([{"日付":r.get("日付"),"レース":r.get("レース"),"理由":str(r.get("状態"))} for r in errors_bt[:12]], hide_index=True, use_container_width=True)
+
     if valid_bt:
         n_bt=len(valid_bt)
         st.write(f"上位1点：旧 {sum(r['旧順位']==1 for r in valid_bt)/n_bt:.1%} ／ 新 {sum(r['新順位']==1 for r in valid_bt)/n_bt:.1%}")
