@@ -40,7 +40,7 @@ def backtest(day, venue, count, course_rates, progress=None, result_lookup=None,
     # Prevent future-dated venue statistics from entering historical evaluations.
     # The supplied venue rates include results through 2026-10-31.
     from datetime import date
-    if day <= date(2026,10,31):
+    if True:
         course_rates = {v:[50.0]*6 for v in course_rates}
     records=[]
     def evaluate(race):
@@ -49,7 +49,10 @@ def backtest(day, venue, count, course_rates, progress=None, result_lookup=None,
         try:
             rows,_=load_race(day,venue,race)
             phase="予想順位の計算"
-            old,new=rank_race(rows,venue,course_rates)
+            # waku10 historical snapshots lack a verified as-of timestamp.
+            # Keep original rows for display, but exclude that feature from ranking.
+            safe_rows = [{**r, "過去10走":"未取得"} for r in rows]
+            old,new=rank_race(safe_rows,venue,course_rates)
             phase="結果の取得"
             outcome=(result_lookup(day,venue,race) if result_lookup else result_for_race(day,venue,race))
             phase="結果の解釈"
@@ -60,7 +63,7 @@ def backtest(day, venue, count, course_rates, progress=None, result_lookup=None,
                 item["状態"]="結果CSVに該当レースなし"
             else:
                 phase="着順と予想の照合"
-                item.update({"状態":"照合済み","実際の3連単":actual,"_入力データ":rows,
+                item.update({"状態":"照合済み","実際の3連単":actual,"_入力データ":safe_rows,
                              "旧順位":old[actual],"新順位":new[actual],
                              "旧Top5":old[actual]<=5,"新Top5":new[actual]<=5,
                              "旧Top10":old[actual]<=10,"新Top10":new[actual]<=10})
