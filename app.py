@@ -776,4 +776,43 @@ with st.expander("バックアップから復元"):
         except (ValueError, KeyError, TypeError) as exc:
             st.error(f"復元に失敗しました：{exc}")
 
+
+st.divider()
+st.header("📸 レース前データの時点保存")
+st.caption("取得した出走表・過去10走を取得日時（日本時間）付きで保存します。翌日以降のレースは「前日以前」、当日は「締切前未確認」と区別。過去レースを事前保存扱いにはしません。")
+import race_snapshots as snapshots
+snapshots.setup(conn)
+snapshot_day = st.date_input("保存するレース日", key="snapshot_day")
+snapshot_venue = st.selectbox("保存する開催場", VENUES, index=18, key="snapshot_venue")
+snapshot_race = st.selectbox("保存するレース", list(range(1,13)), key="snapshot_race")
+if st.button("出走表を取得して日時付きで保存", key="capture_race_snapshot"):
+    try:
+        from datetime import timedelta
+        today_jst = datetime.now(timezone(timedelta(hours=9))).date()
+        if snapshot_day < today_jst:
+            st.error("過去のレースは事前保存として登録できません。")
+        else:
+            rows, sources = load_race(snapshot_day,snapshot_venue,snapshot_race)
+            key,timing = snapshots.capture(conn,snapshot_day,snapshot_venue,snapshot_race,rows,sources)
+            st.success(f"{key}：保存しました（{timing}）")
+    except Exception as exc:
+        st.error(f"保存できませんでした：{exc}")
+saved_snapshots = snapshots.list_snapshots(conn)
+if saved_snapshots:
+    st.dataframe(saved_snapshots,hide_index=True,use_container_width=True)
+st.warning("Streamlitのローカル保存は再起動・再デプロイで消える場合があります。下のJSONをダウンロードして保管してください。")
+st.download_button("時点保存データをJSONでバックアップ",
+                   snapshots.export_json(conn).encode("utf-8"),
+                   file_name="tatsuki_race_snapshots.json",mime="application/json",
+                   key="download_race_snapshots")
+with st.expander("時点保存データをJSONから復元"):
+    snapshot_upload = st.file_uploader("バックアップJSON",type=["json"],key="snapshot_restore")
+    if snapshot_upload is not None and st.button("時点保存データを復元",key="snapshot_restore_btn"):
+        try:
+            n = snapshots.import_json(conn,snapshot_upload.getvalue().decode("utf-8"))
+            st.success(f"{n}件を復元しました。")
+        except Exception as exc:
+            st.error(f"復元できませんでした：{exc}")
+st.caption("保存日時はアプリサーバーで取得します。公開元の元データ作成時刻は保証されません。保存済みの過去10走は、後日のバックテストには自動投入しません。")
+
 conn.close()
