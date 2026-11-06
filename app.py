@@ -541,11 +541,20 @@ if st.button("長期検証を開始", key="run_long_backtest"):
                 key = f"{day:%Y%m%d}-{VENUE_CODES[venue]:02d}-{race:02d}"
                 actual, source = cached_result(day, VENUE_CODES[venue], race)
                 if actual:
-                    verify_official_trifecta(key, actual)
-                    return actual, source
+                    # Daily CSV is an independent source. Official site may block automated access.
+                    try:
+                        verify_official_trifecta(key, actual)
+                        return actual, source, "CSV・公式一致"
+                    except ValueError as exc:
+                        if "結果不一致" in str(exc):
+                            raise
+                        return actual, source, "CSVのみ（公式未確認）"
+                    except (OSError, TimeoutError):
+                        return actual, source, "CSVのみ（公式アクセス不可）"
                 try:
-                    return official_trifecta(key)
-                except (ValueError, OSError) as exc:
+                    finish, official_url = official_trifecta(key)
+                    return finish, official_url, "公式のみ"
+                except (ValueError, OSError, TimeoutError) as exc:
                     raise LookupError(f"結果CSVなし・公式結果も未確認：{str(exc)[:70]}") from exc
             from concurrent.futures import ThreadPoolExecutor, as_completed
             long_progress = st.progress(0)
