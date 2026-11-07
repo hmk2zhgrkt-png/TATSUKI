@@ -94,7 +94,7 @@ def _load_live_race(day, venue, race_number):
     waku_url = prefix + "bc_j_waku10_" + suffix
     boats = _fetch_boatcast_tsv(card_url)
     if not boats or len(boats) != 6 or any(len(b) < 25 for b in boats):
-        raise LookupError("公開CSVにも元の出走表にも6艇のデータがありません。公開前・非開催・取得元のアクセス制限が考えられます。")
+        return _load_official_race(day, venue, race_number)
     try:
         waku = _fetch_boatcast_tsv(waku_url)
     except (HTTPError, URLError, TimeoutError):
@@ -123,6 +123,75 @@ def _load_live_race(day, venue, race_number):
             "過去10走": " ".join(history) if history else "未取得",
         })
     return rows, [card_url] + ([waku_url] if waku else [])
+
+
+def _load_official_race(day, venue, race_number):
+    """Third fallback: BOAT RACE official race-list page, no fabricated values."""
+    import re
+    from bs4 import BeautifulSoup
+    jo = VENUE_CODES[venue]
+    url = (f"https://www.boatrace.jp/owpc/pc/race/racelist"
+           f"?hd={day:%Y%m%d}&jcd={jo:02d}&rno={race_number}")
+    req = Request(url, headers={
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0 Safari/537.36",
+        "Accept-Language": "ja,en;q=0.9", "Referer": "https://www.boatrace.jp/"})
+    try:
+        with urlopen(req, timeout=15) as response:
+            html = response.read().decode("utf-8", errors="replace")
+    except (HTTPError, URLError, TimeoutError) as exc:
+        raise LookupError(f"公開CSV・BOATCAST・公式出走表の取得に失敗しました。公式サイトへの接続: {type(exc).__name__}") from exc
+    soup = BeautifulSoup(html, "html.parser")
+    def values(cell):
+        return [x.strip() for x in cell.stripped_strings if x.strip()]
+    def numeric(value):
+        try:
+            return float(value.replace("%", "").replace(",", "").strip())
+        except (ValueError, AttributeError):
+            return None
+    found = {}
+    for table in soup.select("table"):
+        for tr in table.select("tr"):
+            cells = tr.find_all("td", recursive=False)
+            if len(cells) < 8:
+                continue
+            first = "".join(cells[0].stripped_strings).translate(str.maketrans("１２３４５６", "123456"))
+            if first not in ("1", "2", "3", "4", "5", "6"):
+                continue
+            # Official race list: lane, photo, racer, F/L/ST, national,
+            # local, motor, boat, session history.
+            racer = cells[2] if len(cells) > 2 else None
+            if racer is None:
+                continue
+            registration = re.search(r"(?<!\\d)(\\d{4})(?!\\d)", racer.get_text(" ", strip=True))
+            name_link = racer.select_one("a")
+            name = name_link.get_text(" ", strip=True).replace(" ", "").replace("　", "") if name_link else ""
+            if not registration or not name:
+                continue
+            def cell_num(index, position):
+                if index >= len(cells):
+                    return None
+                nums = [numeric(v) for v in values(cells[index])]
+                nums = [n for n in nums if n is not None]
+                return nums[position] if len(nums) > position else None
+            st = None
+            if len(cells) > 3:
+                for value in values(cells[3]):
+                    n = numeric(value)
+                    if n is not None and 0 <= n <= 1:
+                        st = n
+                        break
+            found[int(first)] = {
+                "号艇": int(first), "選手": name, "登録番号": registration.group(1),
+                "全国勝率": cell_num(4, 0), "当地勝率": cell_num(5, 0),
+                "平均ST": st, "モーター2連対率": cell_num(6, 1),
+                "モーター3連対率": None, "枠番別勝率": None,
+                "枠番別平均ST": None, "過去10走": "未取得",
+            }
+        if len(found) == 6:
+            break
+    if len(found) != 6 or any(not found[n]["選手"] for n in range(1, 7)):
+        raise LookupError("3つの取得先を確認しましたが、公式出走表から6艇を正しく読み取れませんでした。未公開・非開催・アクセス制限・ページ構造変更の可能性があります。")
+    return [found[n] for n in range(1, 7)], [url]
 
 
 def fetch_actual_result(race_key):
