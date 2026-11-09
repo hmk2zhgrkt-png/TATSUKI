@@ -162,7 +162,7 @@ def _load_official_race(day, venue, race_number):
             racer = cells[2] if len(cells) > 2 else None
             if racer is None:
                 continue
-            registration = re.search(r"(?<!\\d)(\\d{4})(?!\\d)", racer.get_text(" ", strip=True))
+            registration = re.search(r"(?<!\d)(\d{4})(?!\d)", racer.get_text(" ", strip=True))
             name_link = racer.select_one("a")
             name = name_link.get_text(" ", strip=True).replace(" ", "").replace("　", "") if name_link else ""
             if not registration or not name:
