@@ -858,10 +858,10 @@ with st.expander("📷 出走表スクショから6艇を読み取って保存")
                         image.thumbnail((2400, 2400))
                     ocr_result, _ = RapidOCR()(_np.asarray(image))
                     lines = [str(item[1]).strip() for item in (ocr_result or []) if len(item) > 1]
-                    st.session_state["snapshot_ocr_text"] = "\\n".join(lines)
+                    st.session_state["snapshot_ocr_text"] = "\n".join(lines)
                     candidates = []
                     for idx, line in enumerate(lines):
-                        match = _ocr_re.search(r"(?<!\\d)([3-5]\\d{3})(?!\\d)", line)
+                        match = _ocr_re.search(r"(?<!\d)([3-5]\d{3})(?!\d)", line)
                         if match:
                             nearby = " ".join(lines[max(0,idx-2):idx+3])
                             candidates.append((match.group(1), nearby))
@@ -886,7 +886,7 @@ with st.expander("📷 出走表スクショから6艇を読み取って保存")
                         for r in edited:
                             name = str(r["選手名"] or "").strip()
                             number = str(r["登録番号"] or "").strip()
-                            if not name or not _ocr_re.fullmatch(r"\\d{4}", number):
+                            if not name or not _ocr_re.fullmatch(r"\d{4}", number):
                                 raise ValueError("6艇すべての選手名と4桁の登録番号が必要です。")
                             def optional_number(value, maximum):
                                 if value is None or str(value).strip() == "":
@@ -907,6 +907,25 @@ with st.expander("📷 出走表スクショから6艇を読み取って保存")
                         st.success(f"{key}：スクショから確認した6艇を保存しました（{timing}）。")
                     except Exception as exc:
                         st.error(f"保存できませんでした：{exc}")
+st.subheader("📅 開催日別の記録・検証")
+st.caption("開催何日目かは出走表の日付だけでは判定できません。開催初日を確認して登録してください。")
+conn.execute("""CREATE TABLE IF NOT EXISTS race_meeting_days (
+ race_key TEXT PRIMARY KEY, opening_date TEXT NOT NULL, meeting_day INTEGER NOT NULL)""")
+conn.commit()
+from datetime import date as _meeting_date
+_meeting_key = f"{snapshot_day:%Y%m%d}-{snapshot_venue}-{snapshot_race:02d}"
+_meeting_existing = conn.execute("SELECT opening_date, meeting_day FROM race_meeting_days WHERE race_key=?", (_meeting_key,)).fetchone()
+_meeting_opening = st.date_input("この開催の初日", value=_meeting_date.fromisoformat(_meeting_existing[0]) if _meeting_existing else snapshot_day,
+ max_value=snapshot_day, key="meeting_opening_day")
+_meeting_day = (snapshot_day - _meeting_opening).days + 1
+st.write(f"開催 **{_meeting_day}日目**（初日：{_meeting_opening}）")
+if st.button("このレースの開催日情報を保存", key="save_meeting_day"):
+    conn.execute("""INSERT INTO race_meeting_days(race_key,opening_date,meeting_day) VALUES(?,?,?)
+       ON CONFLICT(race_key) DO UPDATE SET opening_date=excluded.opening_date,meeting_day=excluded.meeting_day""",
+       (_meeting_key,_meeting_opening.isoformat(),_meeting_day))
+    conn.commit()
+    st.success("開催日情報を保存しました。")
+
 saved_snapshots = snapshots.list_snapshots(conn)
 if saved_snapshots:
     st.dataframe(saved_snapshots,hide_index=True,use_container_width=True)
@@ -970,6 +989,29 @@ if snapshot_records:
                             "結果":item["実際の着順"], "予想順位":item["新順位"],
                             "Top1":item["新順位"] == 1, "Top5":item["新Top5"], "Top10":item["新Top10"]})
     st.write(f"保存済み {len(snapshot_records)}件 ／ 照合済み {len(matched)}件")
+    if matched:
+        st.subheader("📊 開催場・開催日別の成績")
+        meeting_info = dict(conn.execute("SELECT race_key,meeting_day FROM race_meeting_days").fetchall())
+        grouped = {}
+        for r in matched:
+            if r["保存区分"] != "前日以前":
+                continue
+            race_id = f'{r["日付"].replace("-","")}-{r["開催場"]}-{int(r["R"]):02d}'
+            day_no = meeting_info.get(race_id)
+            for group_name in (f'開催場：{r["開催場"]}', f'開催日：{day_no}日目' if day_no else None):
+                if group_name is None:
+                    continue
+                grouped.setdefault(group_name, []).append(r)
+        summary = []
+        for group, items in sorted(grouped.items()):
+            n = len(items)
+            summary.append({"条件":group,"検証数":n,"Top1":f'{sum(x["Top1"] for x in items)/n:.1%}',
+                "Top5":f'{sum(x["Top5"] for x in items)/n:.1%}',"Top10":f'{sum(x["Top10"] for x in items)/n:.1%}'})
+        if summary:
+            st.dataframe(summary,hide_index=True,use_container_width=True)
+            st.caption("前日以前に保存されたデータのみ集計。開催日未登録は開催日別集計から除外。件数が少ない場合は参考値です。")
+        else:
+            st.info("前日以前の保存データを予想・結果照合すると集計されます。")
     if matched:
         st.dataframe(matched, hide_index=True, use_container_width=True)
         earlier = [r for r in matched if r["保存区分"] == "前日以前"]
