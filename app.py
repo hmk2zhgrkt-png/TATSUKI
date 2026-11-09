@@ -8,7 +8,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import streamlit as st
-from history_data import load_race
+import importlib
+import history_data
 import trifecta_tracking as tracking
 from durable_storage import open_database, RemoteStorageError
 
@@ -124,7 +125,7 @@ def fetch_actual_result(race_key):
 st.set_page_config(page_title="競艇AI分析 | TATSUKI", layout="centered")
 st.title("🚤 競艇AI分析 TATSUKI")
 st.caption("試作版｜実データの自動取得なし・予測精度は未検証・自動投票なし")
-st.caption("取得処理診断バージョン：2026-11-09-D（保存エラー詳細表示）")
+st.caption("取得処理診断バージョン：2026-11-09-E（取得モジュール再読み込み）")
 st.warning("表示する確率は簡易計算による参考値で、実際の的中確率ではありません。利益を保証しません。")
 tab4, tab1, tab2, tab3 = st.tabs(["3連単予想（試作）", "旧CSV分析", "旧結果記録", "旧成績"])
 try:
@@ -804,7 +805,9 @@ if st.button("出走表を取得して日時付きで保存", key="capture_race_
         if snapshot_day < today_jst:
             st.error("過去のレースは事前保存として登録できません。")
         else:
-            rows, sources = load_race(snapshot_day,snapshot_venue,snapshot_race)
+            importlib.invalidate_caches()
+            importlib.reload(history_data)
+            rows, sources = history_data.load_race(snapshot_day,snapshot_venue,snapshot_race)
             key,timing = snapshots.capture(conn,snapshot_day,snapshot_venue,snapshot_race,rows,sources)
             st.success(f"{key}：保存しました（{timing}）")
     except Exception as exc:
