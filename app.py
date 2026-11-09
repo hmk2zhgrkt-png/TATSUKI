@@ -839,37 +839,43 @@ with st.expander("📝 自動取得できない場合：6艇を手入力して�
         except Exception as exc:
             st.error(f"手入力の保存に失敗しました：{exc}")
 with st.expander("📷 出走表スクショから6艇を読み取って保存"):
-    st.caption("iPhoneのスクリーンショットを選択 → OCRで文字抽出 → 6艇の内容を修正・確認 → 保存。画像は外部AIサービスに送信しません。")
-    screenshot = st.file_uploader("出走表のスクショ（PNG/JPG）", type=["png", "jpg", "jpeg"], key="race_card_screenshot")
-    if screenshot is not None:
+    st.caption("iPhoneのスクリーンショットを選択 → OCRで文字抽出 → 6艇の内容を修正・確認 → 保存。画像は外部AIサービスに送信しません。OCRの誤認識を避けるため、自動確定せず確認欄に転記してください。")
+    screenshots = st.file_uploader("基本情報・勝率・今節成績のスクショ（最大3枚）", type=["png", "jpg", "jpeg"], accept_multiple_files=True, key="race_card_screenshots")
+    if screenshots:
         import re as _ocr_re
         from io import BytesIO as _BytesIO
         from PIL import Image as _Image
-        image_bytes = screenshot.getvalue()
-        if len(image_bytes) > 10 * 1024 * 1024:
-            st.error("画像は10MB以下にしてください。")
+        image_bytes_list = [f.getvalue() for f in screenshots]
+        if len(screenshots) > 3 or any(len(x) > 10 * 1024 * 1024 for x in image_bytes_list):
+            st.error("画像は最大3枚、各10MB以下にしてください。")
         else:
             if st.button("画像から6艇を読み取る", key="run_snapshot_ocr"):
                 try:
                     from rapidocr_onnxruntime import RapidOCR
                     import numpy as _np
-                    image = _Image.open(_BytesIO(image_bytes)).convert("RGB")
-                    if max(image.size) > 2400:
-                        image.thumbnail((2400, 2400))
-                    ocr_result, _ = RapidOCR()(_np.asarray(image))
-                    lines = [str(item[1]).strip() for item in (ocr_result or []) if len(item) > 1]
-                    st.session_state["snapshot_ocr_text"] = "\n".join(lines)
+                    all_lines = []
+                    engine = RapidOCR()
+                    for file_name, image_bytes in zip([f.name for f in screenshots], image_bytes_list):
+                        image = _Image.open(_BytesIO(image_bytes)).convert("RGB")
+                        if max(image.size) > 2400:
+                            image.thumbnail((2400, 2400))
+                        ocr_result, _ = engine(_np.asarray(image))
+                        lines = [str(item[1]).strip() for item in (ocr_result or []) if len(item) > 1]
+                        all_lines.append((file_name, lines))
+                    st.session_state["snapshot_ocr_text"] = "\\n\\n".join(name + "\\n" + "\\n".join(lines) for name, lines in all_lines)
+                    # Only infer the six registration numbers when exactly six unique
+                    # candidates are found. OCR text ordering is not a reliable boat mapping.
                     candidates = []
-                    for idx, line in enumerate(lines):
-                        match = _ocr_re.search(r"(?<!\d)([3-5]\d{3})(?!\d)", line)
-                        if match:
-                            nearby = " ".join(lines[max(0,idx-2):idx+3])
-                            candidates.append((match.group(1), nearby))
+                    for _, lines in all_lines:
+                        for line in lines:
+                            for match in _ocr_re.finditer(r"(?<!\\d)([3-5]\\d{3})(?!\\d)", line):
+                                if match.group(1) not in candidates:
+                                    candidates.append(match.group(1))
                     st.session_state["snapshot_ocr_rows"] = [
-                        {"号艇": n, "登録番号": candidates[n-1][0] if n <= len(candidates) else "",
-                         "選手名": "", "全国勝率": None, "モーター2連対率": None}
+                        {"号艇": n, "登録番号": "",
+                         "選手名": "", "平均ST": None, "全国勝率": None, "当地勝率": None, "モーター2連対率": None, "モーター3連対率": None, "ボート2連対率": None, "今節成績": ""}
                         for n in range(1,7)]
-                    st.info(f"OCRで{len(lines)}行、登録番号候補{len(candidates)}件を検出しました。号艇との対応と選手名・数値を確認して入力してください。")
+                    st.info(f"{len(all_lines)}枚を読み取りました。登録番号候補：{', '.join(candidates) if candidates else '検出なし'}。艇番との対応を確認して入力してください。")
                 except Exception as exc:
                     st.error(f"画像読み取りに失敗しました：{type(exc).__name__}: {exc}")
             if "snapshot_ocr_text" in st.session_state:
@@ -897,9 +903,9 @@ with st.expander("📷 出走表スクショから6艇を読み取って保存")
                                 return x
                             rows.append({"号艇": int(r["号艇"]), "選手": name, "登録番号": number,
                                 "全国勝率": optional_number(r["全国勝率"], 10),
-                                "当地勝率": None, "平均ST": None,
+                                "当地勝率": optional_number(r["当地勝率"], 10), "平均ST": optional_number(r["平均ST"], 1),
                                 "モーター2連対率": optional_number(r["モーター2連対率"], 100),
-                                "モーター3連対率": None, "枠番別勝率": None,
+                                "モーター3連対率": optional_number(r["モーター3連対率"], 100), "ボート2連対率": optional_number(r["ボート2連対率"], 100), "今節成績": str(r["今節成績"] or ""), "枠番別勝率": None,
                                 "枠番別平均ST": None, "過去10走": "未取得"})
                         if len({r["登録番号"] for r in rows}) != 6:
                             raise ValueError("登録番号が重複しています。")
