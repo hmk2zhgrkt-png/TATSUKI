@@ -46,16 +46,27 @@ def extract(images):
             if num not in [v[2] for v in distinct] and (not distinct or y-distinct[-1][0]>30):
                 distinct.append((y,x,num))
         if len(distinct) != 6:
-            warnings.append(f"{filename}: 登録番号が6件揃わず、位置対応を見送りました（{len(distinct)}件）")
-            continue
-        centers = [r[0] for r in distinct]
+            # Other screenshots may omit registration numbers entirely.
+            markers = {}
+            for xx, yy, txt in items:
+                clean = txt.strip().translate(str.maketrans("１２３４５６", "123456"))
+                if clean in ("1", "2", "3", "4", "5", "6") and xx < 160:
+                    markers.setdefault(int(clean), []).append(yy)
+            centers = [min(markers[i]) for i in range(1, 7)] if all(markers.get(i) for i in range(1, 7)) else []
+            if not centers or any(centers[i] >= centers[i+1] for i in range(5)):
+                warnings.append(f"{filename}: 6艇の行位置を特定できません（登録番号{len(distinct)}件）。OCR文字を確認してください。")
+                continue
+            distinct = [(centers[i], 0, "") for i in range(6)]
+        else:
+            centers = [r[0] for r in distinct]
         bounds = [float("-inf")] + [(centers[i]+centers[i+1])/2 for i in range(5)] + [float("inf")]
         for i, (y, x, number) in enumerate(distinct):
             row = rows[i]
-            if row["登録番号"] and row["登録番号"] != number:
+            if number and row["登録番号"] and row["登録番号"] != number:
                 warnings.append(f"{filename}: {i+1}号艇の登録番号が他画像と不一致")
                 continue
-            row["登録番号"] = number
+            if number:
+                row["登録番号"] = number
             band = [(xx,yy,t) for xx,yy,t in items if bounds[i] <= yy < bounds[i+1]]
             if is_basic:
                 # Japanese racer names are typically directly below registration numbers.
