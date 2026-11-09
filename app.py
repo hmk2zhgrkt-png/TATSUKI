@@ -124,7 +124,7 @@ def fetch_actual_result(race_key):
 st.set_page_config(page_title="競艇AI分析 | TATSUKI", layout="centered")
 st.title("🚤 競艇AI分析 TATSUKI")
 st.caption("試作版｜実データの自動取得なし・予測精度は未検証・自動投票なし")
-st.caption("取得処理診断バージョン：2026-11-09-C（公式出走表解析・詳細診断対応）")
+st.caption("取得処理診断バージョン：2026-11-09-D（保存エラー詳細表示）")
 st.warning("表示する確率は簡易計算による参考値で、実際の的中確率ではありません。利益を保証しません。")
 tab4, tab1, tab2, tab3 = st.tabs(["3連単予想（試作）", "旧CSV分析", "旧結果記録", "旧成績"])
 try:
@@ -809,6 +809,9 @@ if st.button("出走表を取得して日時付きで保存", key="capture_race_
             st.success(f"{key}：保存しました（{timing}）")
     except Exception as exc:
         st.error(f"保存できませんでした：{exc}")
+        with st.expander("取得エラーの詳細診断（秘密情報は表示しません）", expanded=True):
+            import history_data as _hd
+            st.code(f"診断版: 2026-11-09-D\\n日付: {snapshot_day}\\n場: {snapshot_venue}\\nR: {snapshot_race}\\n例外: {type(exc).__name__}\\n詳細: {exc}\\n取得コード: {_hd.__file__}")
 saved_snapshots = snapshots.list_snapshots(conn)
 if saved_snapshots:
     st.dataframe(saved_snapshots,hide_index=True,use_container_width=True)
