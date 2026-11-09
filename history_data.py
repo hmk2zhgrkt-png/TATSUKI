@@ -141,6 +141,10 @@ def _load_official_race(day, venue, race_number):
     except (HTTPError, URLError, TimeoutError) as exc:
         raise LookupError(f"公開CSV・BOATCAST・公式出走表の取得に失敗しました。公式サイトへの接続: {type(exc).__name__}") from exc
     soup = BeautifulSoup(html, "html.parser")
+    if not soup.select("table"):
+        title = soup.title.get_text(" ", strip=True) if soup.title else "タイトルなし"
+        final_url = response.geturl()
+        raise LookupError(f"公式サイトから出走表ではないHTMLが返されました。タイトル: {title[:100]} / 最終URL: {final_url} / HTML長: {len(html)}。取得先のアクセス制限または未公開の可能性があります。")
     def values(cell):
         return [x.strip() for x in cell.stripped_strings if x.strip()]
     def numeric(value):
