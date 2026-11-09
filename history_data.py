@@ -125,6 +125,51 @@ def _load_live_race(day, venue, race_number):
     return rows, [card_url] + ([waku_url] if waku else [])
 
 
+def _load_openapi_race(day, venue, race_number):
+    """Read structured program JSON, strictly requiring six named entries."""
+    import json
+    jo = VENUE_CODES[venue]
+    url = f"https://boatraceopenapi.github.io/api/v1/{day:%Y}/{day:%Y%m%d}.json"
+    req = Request(url, headers={"User-Agent": "Mozilla/5.0", "Accept": "application/json"})
+    try:
+        with urlopen(req, timeout=15) as response:
+            payload = json.load(response)
+    except (HTTPError, URLError, TimeoutError, ValueError) as exc:
+        raise LookupError(f"公式ページに出走表がなく、代替JSON APIも取得できませんでした: {type(exc).__name__}") from exc
+    try:
+        race = payload["programs"]["stadiums"][str(jo)]["races"][str(race_number)]
+        racers = race["racers"]
+    except (KeyError, TypeError) as exc:
+        raise LookupError(f"代替JSON APIに{venue}{race_number}Rの出走表がありません。公開前・非開催・形式変更の可能性があります。") from exc
+    if not isinstance(racers, dict):
+        raise LookupError("代替JSON APIの選手データ形式が不正です")
+    def number(value):
+        try:
+            return float(value) if value is not None and value != "" else None
+        except (ValueError, TypeError):
+            return None
+    result = []
+    for n in range(1, 7):
+        racer = racers.get(str(n))
+        if not isinstance(racer, dict) or not str(racer.get("name") or "").strip():
+            raise LookupError(f"代替JSON APIの{n}号艇データが不足しています。誤った出走表は保存しません。")
+        entry = racer.get("entry_number")
+        if entry is not None and str(entry) != str(n):
+            raise LookupError(f"代替JSON APIの艇番が一致しません: {n}号艇")
+        result.append({
+            "号艇": n, "選手": str(racer["name"]).strip(),
+            "登録番号": str(racer.get("number") or ""),
+            "全国勝率": number(racer.get("national_win_rate")),
+            "当地勝率": number(racer.get("local_win_rate")),
+            "平均ST": number(racer.get("average_start_timing")),
+            "モーター2連対率": number(racer.get("motor_top2_rate")),
+            "モーター3連対率": number(racer.get("motor_top3_rate")),
+            "枠番別勝率": None, "枠番別平均ST": None,
+            "過去10走": "未取得",
+        })
+    return result, [url]
+
+
 def _load_official_race(day, venue, race_number):
     """Third fallback: BOAT RACE official race-list page, no fabricated values."""
     import re
@@ -142,9 +187,7 @@ def _load_official_race(day, venue, race_number):
         raise LookupError(f"公開CSV・BOATCAST・公式出走表の取得に失敗しました。公式サイトへの接続: {type(exc).__name__}") from exc
     soup = BeautifulSoup(html, "html.parser")
     if not soup.select("table"):
-        title = soup.title.get_text(" ", strip=True) if soup.title else "タイトルなし"
-        final_url = response.geturl()
-        raise LookupError(f"公式サイトから出走表ではないHTMLが返されました。タイトル: {title[:100]} / 最終URL: {final_url} / HTML長: {len(html)}。取得先のアクセス制限または未公開の可能性があります。")
+        return _load_openapi_race(day, venue, race_number)
     def values(cell):
         return [x.strip() for x in cell.stripped_strings if x.strip()]
     def numeric(value):
