@@ -815,6 +815,29 @@ if st.button("出走表を取得して日時付きで保存", key="capture_race_
         with st.expander("取得エラーの詳細診断（秘密情報は表示しません）", expanded=True):
             import history_data as _hd
             st.code(f"診断版: 2026-11-09-D\\n日付: {snapshot_day}\\n場: {snapshot_venue}\\nR: {snapshot_race}\\n例外: {type(exc).__name__}\\n詳細: {exc}\\n取得コード: {_hd.__file__}")
+with st.expander("📝 自動取得できない場合：6艇を手入力して保存"):
+    st.caption("公式出走表を見ながら6艇の情報を入力します。入力値は未検証の手入力データとして記録し、取得済みの公式データとは区別します。")
+    manual_rows = []
+    for boat in range(1, 7):
+        st.markdown(f"**{boat}号艇**")
+        name = st.text_input("選手名", key=f"manual_name_{boat}")
+        number = st.text_input("登録番号（4桁）", key=f"manual_number_{boat}", max_chars=4)
+        win = st.number_input("全国勝率", min_value=0.0, max_value=10.0, value=0.0, step=0.01, key=f"manual_win_{boat}")
+        motor = st.number_input("モーター2連対率（%）", min_value=0.0, max_value=100.0, value=0.0, step=0.1, key=f"manual_motor_{boat}")
+        manual_rows.append({"号艇": boat, "選手": name.strip(), "登録番号": number.strip(),
+            "全国勝率": win if win > 0 else None, "当地勝率": None, "平均ST": None,
+            "モーター2連対率": motor if motor > 0 else None, "モーター3連対率": None,
+            "枠番別勝率": None, "枠番別平均ST": None, "過去10走": "未取得"})
+    if st.button("手入力した6艇を日時付きで保存", key="manual_capture"):
+        try:
+            if any(not r["選手"] or not (len(r["登録番号"]) == 4 and r["登録番号"].isdigit()) for r in manual_rows):
+                raise ValueError("全6艇の選手名と4桁の登録番号を入力してください。")
+            if len({r["登録番号"] for r in manual_rows}) != 6:
+                raise ValueError("登録番号が重複しています。")
+            key, timing = snapshots.capture(conn, snapshot_day, snapshot_venue, snapshot_race, manual_rows, ["manual-entry:unverified"])
+            st.success(f"{key}：手入力データを保存しました（{timing}）。数値が未入力の項目は未取得として扱います。")
+        except Exception as exc:
+            st.error(f"手入力の保存に失敗しました：{exc}")
 saved_snapshots = snapshots.list_snapshots(conn)
 if saved_snapshots:
     st.dataframe(saved_snapshots,hide_index=True,use_container_width=True)
