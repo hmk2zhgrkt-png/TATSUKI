@@ -838,6 +838,75 @@ with st.expander("📝 自動取得できない場合：6艇を手入力して�
             st.success(f"{key}：手入力データを保存しました（{timing}）。数値が未入力の項目は未取得として扱います。")
         except Exception as exc:
             st.error(f"手入力の保存に失敗しました：{exc}")
+with st.expander("📷 出走表スクショから6艇を読み取って保存"):
+    st.caption("iPhoneのスクリーンショットを選択 → OCRで文字抽出 → 6艇の内容を修正・確認 → 保存。画像は外部AIサービスに送信しません。")
+    screenshot = st.file_uploader("出走表のスクショ（PNG/JPG）", type=["png", "jpg", "jpeg"], key="race_card_screenshot")
+    if screenshot is not None:
+        import re as _ocr_re
+        from io import BytesIO as _BytesIO
+        from PIL import Image as _Image
+        image_bytes = screenshot.getvalue()
+        if len(image_bytes) > 10 * 1024 * 1024:
+            st.error("画像は10MB以下にしてください。")
+        else:
+            if st.button("画像から6艇を読み取る", key="run_snapshot_ocr"):
+                try:
+                    from rapidocr_onnxruntime import RapidOCR
+                    import numpy as _np
+                    image = _Image.open(_BytesIO(image_bytes)).convert("RGB")
+                    if max(image.size) > 2400:
+                        image.thumbnail((2400, 2400))
+                    ocr_result, _ = RapidOCR()(_np.asarray(image))
+                    lines = [str(item[1]).strip() for item in (ocr_result or []) if len(item) > 1]
+                    st.session_state["snapshot_ocr_text"] = "\\n".join(lines)
+                    candidates = []
+                    for idx, line in enumerate(lines):
+                        match = _ocr_re.search(r"(?<!\\d)([3-5]\\d{3})(?!\\d)", line)
+                        if match:
+                            nearby = " ".join(lines[max(0,idx-2):idx+3])
+                            candidates.append((match.group(1), nearby))
+                    st.session_state["snapshot_ocr_rows"] = [
+                        {"号艇": n, "登録番号": candidates[n-1][0] if n <= len(candidates) else "",
+                         "選手名": "", "全国勝率": None, "モーター2連対率": None}
+                        for n in range(1,7)]
+                    st.info(f"OCRで{len(lines)}行、登録番号候補{len(candidates)}件を検出しました。号艇との対応と選手名・数値を確認して入力してください。")
+                except Exception as exc:
+                    st.error(f"画像読み取りに失敗しました：{type(exc).__name__}: {exc}")
+            if "snapshot_ocr_text" in st.session_state:
+                with st.expander("OCRで読み取った文字（確認用）"):
+                    st.text_area("抽出テキスト", value=st.session_state["snapshot_ocr_text"], height=180, disabled=True)
+            if "snapshot_ocr_rows" in st.session_state:
+                st.warning("OCRは誤認識します。登録番号候補は号艇順とは限りません。公式出走表と照らし、必ず6艇を修正・確認してください。")
+                edited = st.data_editor(st.session_state["snapshot_ocr_rows"], num_rows="fixed", hide_index=True,
+                    disabled=["号艇"], use_container_width=True, key="snapshot_ocr_editor")
+                confirm = st.checkbox("6艇の号艇・選手名・登録番号・入力数値を公式出走表と照合しました", key="snapshot_ocr_confirm")
+                if st.button("確認した6艇を日時付きで保存", key="snapshot_ocr_save", disabled=not confirm):
+                    try:
+                        rows = []
+                        for r in edited:
+                            name = str(r["選手名"] or "").strip()
+                            number = str(r["登録番号"] or "").strip()
+                            if not name or not _ocr_re.fullmatch(r"\\d{4}", number):
+                                raise ValueError("6艇すべての選手名と4桁の登録番号が必要です。")
+                            def optional_number(value, maximum):
+                                if value is None or str(value).strip() == "":
+                                    return None
+                                x = float(value)
+                                if not 0 <= x <= maximum:
+                                    raise ValueError("勝率・モーター2連対率の値を確認してください。")
+                                return x
+                            rows.append({"号艇": int(r["号艇"]), "選手": name, "登録番号": number,
+                                "全国勝率": optional_number(r["全国勝率"], 10),
+                                "当地勝率": None, "平均ST": None,
+                                "モーター2連対率": optional_number(r["モーター2連対率"], 100),
+                                "モーター3連対率": None, "枠番別勝率": None,
+                                "枠番別平均ST": None, "過去10走": "未取得"})
+                        if len({r["登録番号"] for r in rows}) != 6:
+                            raise ValueError("登録番号が重複しています。")
+                        key, timing = snapshots.capture(conn, snapshot_day, snapshot_venue, snapshot_race, rows, ["screenshot-ocr:user-verified"])
+                        st.success(f"{key}：スクショから確認した6艇を保存しました（{timing}）。")
+                    except Exception as exc:
+                        st.error(f"保存できませんでした：{exc}")
 saved_snapshots = snapshots.list_snapshots(conn)
 if saved_snapshots:
     st.dataframe(saved_snapshots,hide_index=True,use_container_width=True)
