@@ -2,7 +2,7 @@
 import csv
 import io
 from functools import lru_cache
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
@@ -25,6 +25,11 @@ def _get_row(kind, day, race_code):
 def load_race(day, venue, race_number):
     if not isinstance(day, date) or venue not in VENUE_CODES or not 1 <= race_number <= 12:
         raise ValueError("開催日・競艇場・レース番号を確認してください")
+    now_jst = datetime.now(timezone(timedelta(hours=9)))
+    if day > now_jst.date() and (day - now_jst.date()).days >= 2:
+        raise LookupError("2日以上先の出走表は通常まだ公開されていません。前日夜以降に取得してください。")
+    if day > now_jst.date() and now_jst.hour < 20:
+        raise LookupError("翌日の公式番組表は通常、前日19時半ごろに公開されます。現在は公開前の可能性が高いため、20時以降に再確認してください。")
     code = f"{day:%Y%m%d}{VENUE_CODES[venue]:02d}{race_number:02d}"
     # The daily CSV is generated retrospectively. For upcoming races, use
     # the same original boatcast per-race TSV directly instead of waiting.
@@ -135,7 +140,7 @@ def _load_openapi_race(day, venue, race_number):
         with urlopen(req, timeout=15) as response:
             payload = json.load(response)
     except (HTTPError, URLError, TimeoutError, ValueError) as exc:
-        raise LookupError(f"公式ページに出走表がなく、代替JSON APIも取得できませんでした: {type(exc).__name__}") from exc
+        raise LookupError(f"公式ページに出走表がなく、代替JSON APIも取得できませんでした: {type(exc).__name__} (HTTP {getattr(exc, 'code', '不明')})。公開前または取得先の問題です。") from exc
     try:
         race = payload["programs"]["stadiums"][str(jo)]["races"][str(race_number)]
         racers = race["racers"]
