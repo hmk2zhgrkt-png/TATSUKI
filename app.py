@@ -124,7 +124,7 @@ def fetch_actual_result(race_key):
 st.set_page_config(page_title="競艇AI分析 | TATSUKI", layout="centered")
 st.title("🚤 競艇AI分析 TATSUKI")
 st.caption("試作版｜実データの自動取得なし・予測精度は未検証・自動投票なし")
-st.caption("接続診断バージョン：2026-11-06-B（この表示がなければ旧版が動作中）")
+st.caption("取得処理診断バージョン：2026-11-09-C（公式出走表解析・詳細診断対応）")
 st.warning("表示する確率は簡易計算による参考値で、実際の的中確率ではありません。利益を保証しません。")
 tab4, tab1, tab2, tab3 = st.tabs(["3連単予想（試作）", "旧CSV分析", "旧結果記録", "旧成績"])
 try:
