@@ -853,31 +853,30 @@ with st.expander("📷 出走表スクショから6艇を読み取って保存")
                 try:
                     from rapidocr_onnxruntime import RapidOCR
                     import numpy as _np
+                    from screenshot_parser import extract as extract_race_screenshots
                     all_lines = []
+                    ocr_images = []
                     engine = RapidOCR()
                     for file_name, image_bytes in zip([f.name for f in screenshots], image_bytes_list):
                         image = _Image.open(_BytesIO(image_bytes)).convert("RGB")
                         if max(image.size) > 2400:
                             image.thumbnail((2400, 2400))
                         ocr_result, _ = engine(_np.asarray(image))
-                        lines = [str(item[1]).strip() for item in (ocr_result or []) if len(item) > 1]
+                        detections = ocr_result or []
+                        lines = [str(item[1]).strip() for item in detections if len(item) > 1]
                         all_lines.append((file_name, lines))
-                    st.session_state["snapshot_ocr_text"] = "\\n\\n".join(name + "\\n" + "\\n".join(lines) for name, lines in all_lines)
-                    # Only infer the six registration numbers when exactly six unique
-                    # candidates are found. OCR text ordering is not a reliable boat mapping.
-                    candidates = []
-                    for _, lines in all_lines:
-                        for line in lines:
-                            for match in _ocr_re.finditer(r"(?<!\\d)([3-5]\\d{3})(?!\\d)", line):
-                                if match.group(1) not in candidates:
-                                    candidates.append(match.group(1))
-                    st.session_state["snapshot_ocr_rows"] = [
-                        {"号艇": n, "登録番号": "",
-                         "選手名": "", "平均ST": None, "全国勝率": None, "当地勝率": None, "モーター2連対率": None, "モーター3連対率": None, "ボート2連対率": None, "今節成績": ""}
-                        for n in range(1,7)]
+                        ocr_images.append((file_name, detections))
+                    st.session_state["snapshot_ocr_text"] = "\n\n".join(
+                        name + "\n" + "\n".join(lines) for name, lines in all_lines)
+                    parsed, warnings = extract_race_screenshots(ocr_images)
+                    st.session_state["snapshot_ocr_rows"] = parsed
+                    st.session_state["snapshot_ocr_warnings"] = warnings
+                    candidates = [r["登録番号"] for r in parsed if r["登録番号"]]
                     st.info(f"{len(all_lines)}枚を読み取りました。登録番号候補：{', '.join(candidates) if candidates else '検出なし'}。艇番との対応を確認して入力してください。")
                 except Exception as exc:
                     st.error(f"画像読み取りに失敗しました：{type(exc).__name__}: {exc}")
+            for warning in st.session_state.get("snapshot_ocr_warnings", []):
+                st.warning(warning)
             if "snapshot_ocr_text" in st.session_state:
                 with st.expander("OCRで読み取った文字（確認用）"):
                     st.text_area("抽出テキスト", value=st.session_state["snapshot_ocr_text"], height=180, disabled=True)
