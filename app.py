@@ -871,6 +871,7 @@ with st.expander("📷 出走表スクショから6艇を読み取って保存")
                     parsed, warnings = extract_race_screenshots(ocr_images)
                     st.session_state["snapshot_ocr_rows"] = parsed
                     st.session_state["snapshot_ocr_warnings"] = warnings
+                    st.session_state["snapshot_ocr_run_id"] = st.session_state.get("snapshot_ocr_run_id", 0) + 1
                     candidates = [r["登録番号"] for r in parsed if r["登録番号"]]
                     st.info(f"{len(all_lines)}枚を読み取りました。登録番号候補：{', '.join(candidates) if candidates else '検出なし'}。艇番との対応を確認して入力してください。")
                 except Exception as exc:
@@ -883,7 +884,7 @@ with st.expander("📷 出走表スクショから6艇を読み取って保存")
             if "snapshot_ocr_rows" in st.session_state:
                 st.warning("OCRは誤認識します。登録番号候補は号艇順とは限りません。公式出走表と照らし、必ず6艇を修正・確認してください。")
                 edited = st.data_editor(st.session_state["snapshot_ocr_rows"], num_rows="fixed", hide_index=True,
-                    disabled=["号艇"], use_container_width=True, key="snapshot_ocr_editor")
+                    disabled=["号艇"], use_container_width=True, key=f'snapshot_ocr_editor_{st.session_state.get("snapshot_ocr_run_id", 0)}')
                 confirm = st.checkbox("6艇の号艇・選手名・登録番号・入力数値を公式出走表と照合しました", key="snapshot_ocr_confirm")
                 if st.button("確認した6艇を日時付きで保存", key="snapshot_ocr_save", disabled=not confirm):
                     try:
