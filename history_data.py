@@ -150,9 +150,9 @@ def _load_official_race(day, venue, race_number):
             return None
     found = {}
     for table in soup.select("table"):
-        for tr in table.select("tr"):
-            cells = tr.find_all("td", recursive=False)
-            if len(cells) < 8:
+        for tr in table.select("tbody"):
+            cells = tr.select("td")
+            if len(cells) < 7:
                 continue
             first = "".join(cells[0].stripped_strings).translate(str.maketrans("１２３４５６", "123456"))
             if first not in ("1", "2", "3", "4", "5", "6"):
@@ -190,7 +190,7 @@ def _load_official_race(day, venue, race_number):
         if len(found) == 6:
             break
     if len(found) != 6 or any(not found[n]["選手"] for n in range(1, 7)):
-        raise LookupError("3つの取得先を確認しましたが、公式出走表から6艇を正しく読み取れませんでした。未公開・非開催・アクセス制限・ページ構造変更の可能性があります。")
+        raise LookupError(f"公式出走表の解析結果: {len(found)}/6艇、HTML長: {len(html)}文字、table数: {len(soup.select('table'))}。未公開・アクセス制限・ページ構造変更の可能性があります。")
     return [found[n] for n in range(1, 7)], [url]
 
 
