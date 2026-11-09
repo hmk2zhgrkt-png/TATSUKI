@@ -5,8 +5,8 @@ Uncertain fields remain blank for user review.
 """
 import re
 
-REG = re.compile(r"(?<!\\d)([3-5]\\d{3})(?!\\d)")
-DEC = re.compile(r"(?<!\\d)(\\d{1,3}\\.\\d{1,2})(?!\\d)")
+REG = re.compile(r"(?<!\d)([3-5]\d{3})(?!\d)")
+DEC = re.compile(r"(?<!\d)(\d{1,3}\.\d{1,2})(?!\d)")
 
 def extract(images):
     # images: [(filename, [(polygon, text, confidence), ...]), ...]
@@ -60,7 +60,7 @@ def extract(images):
             if is_basic:
                 # Japanese racer names are typically directly below registration numbers.
                 names = [(yy,t) for xx,yy,t in band if xx < 520 and
-                         re.fullmatch(r"[一-龯々ぁ-んァ-ヶー・\\s]{3,12}",t) and
+                         re.fullmatch(r"[一-龯々ぁ-んァ-ヶー・\s]{3,12}",t) and
                          not any(v in t for v in ("愛知","山口","静岡","広島","埼玉","東京","福岡","大阪","兵庫"))]
                 names.sort()
                 if names:
